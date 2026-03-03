@@ -4,10 +4,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url = env("DATABASE_URL")
 }
 
-// Enums for Roles and Status
+// Enums for Roles
 enum Role {
   CUSTOMER
   VENDOR
@@ -18,9 +18,39 @@ enum Role {
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
+  phone     String   @unique
   password  String
   name      String
   role      Role     @default(CUSTOMER)
-  phone     String?
   createdAt DateTime @default(now())
+
+  // Relations
+
+  // orders        Order[]
+  vendorProfile VendorProfile?
+  riderProfile  RiderProfile?
+}
+
+model VendorProfile {
+  id          Int     @id @default(autoincrement())
+  shopName    String
+  shopType    String
+  openingTime String // e.g., "08:00 AM"
+  closingTime String
+  description String?
+  isOpen      Boolean @default(true)
+  
+  userId      Int     @unique
+  user        User    @relation(fields: [userId], references: [id])
+  // products    Product[].  products will be added later when we implement the Product model
+}
+
+model RiderProfile {
+  id          Int     @id @default(autoincrement())
+  vehicleType String  // Bike, Car, Bicycle....
+  vehicleNo   String? // Vehicle Registration Number, could be kept optional keeping in mind that riders might have Bicycle too.
+  isAvailable Boolean @default(true)
+  
+  userId      Int     @unique
+  user        User    @relation(fields: [userId], references: [id])
 }
