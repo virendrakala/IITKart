@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes.js';
+import riderRoutes from './routes/riderRoutes.js';
 
 dotenv.config();
 
@@ -13,7 +14,9 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/riders', riderRoutes);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'success', message: 'IITKart Backend is running!' });
