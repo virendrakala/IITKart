@@ -32,7 +32,10 @@ model User {
   name      String
   role      Role     @default(CUSTOMER)
   createdAt DateTime @default(now())
-
+  hostel      String?
+  roomNumber  String?
+  profileImageUrl String?
+  
   // Relations
   orders        Order[] @relation("CustomerOrders")
   vendorProfile VendorProfile?
