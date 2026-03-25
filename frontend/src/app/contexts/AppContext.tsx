@@ -164,6 +164,7 @@ interface AppContextType {
   addOrder: (order: Order) => void;
   updateOrderStatus: (orderId: string, status: Order['status']) => void;
   addOrderRating: (orderId: string, rating: number, feedback: string) => void;
+  rateOrder: (orderId: string, type: 'product'|'courier'|'vendor', rating: number, feedback: string) => Promise<void>;
   assignCourier: (orderId: string, courierId: string) => void;
   updateOrder: (orderId: string, updates: Partial<Order>) => void;
   
@@ -316,6 +317,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   React.useEffect(() => {
     const fetchInitialData = async () => {
+      // Expose api patch for direct file uploads in components
+      (window as any).apiPatch = api.patch;
       try {
         const [vendorsRes, productsRes] = await Promise.all([
           api.get('/vendors'),
@@ -344,11 +347,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   React.useEffect(() => {
     if (currentUser) {
-      api.get('/orders')
+      api.get('/users/orders')
         .then(res => setOrders(res.data.data))
         .catch(err => console.error("Failed to load orders:", err));
+      
+      api.get('/users/complaints')
+        .then(res => setComplaints(res.data.data))
+        .catch(err => console.error("Failed to load complaints:", err));
     } else {
       setOrders([]);
+      setComplaints([]);
     }
   }, [currentUser]);
 
@@ -432,14 +440,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const addOrderRating = async (orderId: string, rating: number, feedback: string) => {
+  const rateOrder = async (orderId: string, type: 'product'|'courier'|'vendor', rating: number, feedback: string) => {
     try {
-      await api.patch(`/orders/${orderId}/rate`, { type: 'product', rating, feedback });
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, rating, feedback } : o));
+      await api.patch(`/orders/${orderId}/rate`, { type, rating, feedback });
+      setOrders(prev => prev.map(o => {
+        if (o.id !== orderId) return o;
+        if (type === 'product') return { ...o, rating, feedback };
+        if (type === 'courier') return { ...o, courierRating: rating, courierFeedback: feedback };
+        return { ...o, vendorRating: rating, vendorFeedback: feedback };
+      }));
     } catch (error) {
       console.error(error);
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, rating, feedback } : o));
     }
+  };
+
+  const addOrderRating = (orderId: string, rating: number, feedback: string) => {
+    rateOrder(orderId, 'product', rating, feedback);
   };
 
   const assignCourier = async (orderId: string, courierId: string) => {
@@ -502,7 +518,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateUser = async (userId: string, updates: Partial<User>) => {
     try {
-      if (currentUser?.id === userId) await api.patch('/users/me/profile', updates);
+      if (currentUser?.id === userId) await api.patch('/users/profile', updates);
       
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...updates } : u));
       if (currentUser && currentUser.id === userId) {
@@ -675,6 +691,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orders,
         addOrder,
         updateOrderStatus,
+        rateOrder,
         addOrderRating,
         assignCourier,
         updateOrder,

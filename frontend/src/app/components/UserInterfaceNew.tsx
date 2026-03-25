@@ -46,7 +46,7 @@ export function UserInterface() {
   const {
     products, currentUser, setCurrentUser, cart, addToCart, removeFromCart,
     updateCartQuantity, clearCart, addOrder, updateOrder, orders, vendors,
-    updateUser, addComplaint
+    updateUser, addComplaint, rateOrder, complaints
   } = useApp();
 
   const [activeTab, setActiveTab]     = useState('browse');
@@ -76,6 +76,12 @@ export function UserInterface() {
 
   React.useEffect(() => { if (!currentUser) navigate('/auth'); }, [currentUser, navigate]);
   if (!currentUser) return null;
+
+  const getImageUrl = (url?: string | null) => {
+    if (!url) return '';
+    if (url.startsWith('http') || url.startsWith('data:')) return url;
+    return `http://localhost:5001${url.startsWith('/') ? '' : '/'}${url}`;
+  };
 
   const categories = useMemo(() => ['all', ...Array.from(new Set(products.map(p => p.category)))], [products]);
   const bestsellers = ['1', '7', '9', '13'];
@@ -142,9 +148,7 @@ export function UserInterface() {
   };
 
   const handleFeedbackSubmit = () => {
-    if (feedbackDialog.type === 'product')       updateOrder(feedbackDialog.orderId, { rating, feedback });
-    else if (feedbackDialog.type === 'courier')  updateOrder(feedbackDialog.orderId, { courierRating: rating, courierFeedback: feedback });
-    else                                         updateOrder(feedbackDialog.orderId, { vendorRating: rating, vendorFeedback: feedback });
+    rateOrder(feedbackDialog.orderId, feedbackDialog.type, rating, feedback);
     toast.success('Feedback submitted! Thank you 🙏');
     setFeedbackDialog({ open: false, orderId: '', type: 'product' });
     setRating(5); setFeedback('');
@@ -200,7 +204,7 @@ export function UserInterface() {
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center overflow-hidden flex-shrink-0">
                 {currentUser.photo
-                  ? <img src={currentUser.photo} alt="" className="w-full h-full object-cover" />
+                  ? <img src={getImageUrl(currentUser.photo)} alt="" className="w-full h-full object-cover" />
                   : <User className="w-5 h-5 text-[#1E3A8A] dark:text-blue-400" />
                 }
               </div>
@@ -420,10 +424,16 @@ export function UserInterface() {
                               );
                             })}
                           </div>
-                          <button onClick={() => setComplaintDialog({ open: true, orderId: order.id })}
-                            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-red-200 dark:border-red-900/30 text-red-500 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors">
-                            <AlertTriangle className="w-3.5 h-3.5" /> File a Complaint
-                          </button>
+                          {complaints.some((c: any) => c.orderId === order.id) ? (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-900/10 text-red-600 text-xs font-semibold w-fit">
+                              <AlertTriangle className="w-3.5 h-3.5" /> Complaint Filed
+                            </div>
+                          ) : (
+                            <button onClick={() => setComplaintDialog({ open: true, orderId: order.id })}
+                              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-red-200 dark:border-red-900/30 text-red-500 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors w-fit">
+                              <AlertTriangle className="w-3.5 h-3.5" /> File a Complaint
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -469,7 +479,7 @@ export function UserInterface() {
                       </div>
                       <div className="p-5 space-y-3">
                         <div className="space-y-1">
-                          {order.products.map((item: any, idx: number) => {
+                          {((order as any).products || (order as any).items || []).map((item: any, idx: number) => {
                             const product = products.find(p => p.id === item.productId);
                             return (
                               <div key={idx} className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
@@ -560,15 +570,31 @@ export function UserInterface() {
                     <div className="relative">
                       <div className="w-20 h-20 rounded-2xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center overflow-hidden">
                         {settingsData.photo
-                          ? <img src={settingsData.photo} alt="Profile" className="w-full h-full object-cover" />
+                          ? <img src={getImageUrl(settingsData.photo)} alt="Profile" className="w-full h-full object-cover" />
                           : <User className="w-10 h-10 text-[#1E3A8A] dark:text-blue-400" />}
                       </div>
-                      <button onClick={() => { const url = prompt('Enter image URL:'); if (url) setSettingsData({ ...settingsData, photo: url }); }}
-                        className="absolute -bottom-1 -right-1 w-7 h-7 rounded-xl bg-[#1E3A8A] text-white flex items-center justify-center shadow-lg">
+                      <input 
+                        type="file" 
+                        id="photo-upload" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setSettingsData({ ...settingsData, photo: reader.result as string, photoFile: file } as any);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <button onClick={() => document.getElementById('photo-upload')?.click()}
+                        className="absolute -bottom-1 -right-1 w-7 h-7 rounded-xl bg-[#1E3A8A] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all">
                         <Camera className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <p className="text-xs text-slate-400">Click the camera icon to change photo</p>
+                    <p className="text-xs text-slate-400">Click the camera icon to select a local photo</p>
                   </div>
                   {[
                     { label: 'Full Name',  icon: User,     field: 'name',    type: 'text',  placeholder: 'Your full name' },
@@ -587,7 +613,33 @@ export function UserInterface() {
                     );
                   })}
                   <div className="flex gap-3 pt-2">
-                    <button onClick={() => { updateUser(currentUser.id, settingsData); toast.success('Settings saved!'); }}
+                    <button onClick={async () => { 
+                      try {
+                        let photoRef = settingsData.photo;
+                        // Handle FormData if file was selected
+                        if ((settingsData as any).photoFile) {
+                          const formData = new FormData();
+                          formData.append('photo', (settingsData as any).photoFile);
+                          formData.append('name', settingsData.name);
+                          formData.append('phone', settingsData.phone);
+                          formData.append('address', settingsData.address);
+                          // We bypass context updateUser purely for the file upload, then sync state
+                          const res = await (window as any).apiPatch?.('/users/profile', formData, {
+                             headers: { 'Content-Type': 'multipart/form-data' }
+                          });
+                          if (res?.data?.data) {
+                            photoRef = res.data.data.photo;
+                            toast.success('Settings & Photo saved!');
+                          }
+                        }
+                        
+                        // Fallback context update
+                        updateUser(currentUser.id, { ...settingsData, photo: photoRef }); 
+                        toast.success('Settings saved!'); 
+                      } catch (e) {
+                        toast.error('Failed to save settings');
+                      }
+                    }}
                       className="flex-1 h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white font-bold rounded-xl transition-all shadow-md active:scale-95 text-sm">Save Changes</button>
                     <button onClick={() => { setCurrentUser(null); navigate('/auth'); }}
                       className="flex-1 h-11 border-2 border-red-200 dark:border-red-900/30 text-red-500 font-bold rounded-xl hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors text-sm">Logout</button>

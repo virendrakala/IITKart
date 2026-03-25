@@ -20,7 +20,9 @@ import paymentRoutes from './routes/paymentRoutes';
 const app = express();
 
 // Middlewares
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(cors(corsOptions));
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));

@@ -11,44 +11,58 @@ export const placeOrder = async (req: AuthRequest, res: Response, next: NextFunc
     const validatedVendorId = await orderService.validateSingleVendorCart(items);
     if (validatedVendorId !== vendorId) throw new AppError('Vendor mismatch', 400);
 
-    const total = await orderService.calculateOrderTotal(items);
+    const productIds = items.map((i: any) => i.productId);
+    const products = await prisma.product.findMany({ where: { id: { in: productIds } } });
+    
+    let total = 0;
+    const orderItemsData = items.map((item: any) => {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) throw new AppError(`Product not found: ${item.productId}`, 404);
+      total += product.price * item.quantity;
+      return {
+        productId: item.productId,
+        quantity: item.quantity,
+        price: product.price
+      };
+    });
+
     const kartCoinsEarned = orderService.calculateKartCoins(total);
 
-    const order = await prisma.order.create({
-      data: {
-        userId: req.user.id,
-        vendorId,
-        total,
-        deliveryAddress,
-        paymentMethod,
-        kartCoinsEarned,
-        items: {
-          create: items.map((i: any) => ({
-            productId: i.productId,
-            quantity: i.quantity,
-            price: 0 // Simplified for logic scope
-          }))
+    const order = await prisma.$transaction(async (tx) => {
+      const newOrder = await tx.order.create({
+        data: {
+          userId: req.user.id,
+          vendorId,
+          total,
+          deliveryAddress,
+          paymentMethod,
+          kartCoinsEarned,
+          items: {
+            create: orderItemsData
+          }
+        },
+        include: { items: true }
+      });
+
+      await tx.payment.create({
+        data: {
+          orderId: newOrder.id,
+          userId: req.user.id,
+          amount: total + 30, // 30 is delivery charge
+          paymentStatus: 'pending',
+          method: paymentMethod
         }
-      },
-      include: { items: true }
+      });
+
+      await tx.user.update({
+        where: { id: req.user.id },
+        data: { kartCoins: { increment: kartCoinsEarned } }
+      });
+
+      return newOrder;
     });
 
-    await prisma.payment.create({
-      data: {
-        orderId: order.id,
-        userId: req.user.id,
-        amount: total + 30, // 30 is delivery charge
-        paymentStatus: 'pending',
-        method: paymentMethod
-      }
-    });
-
-    await prisma.user.update({
-      where: { id: req.user.id },
-      data: { kartCoins: { increment: kartCoinsEarned } }
-    });
-
-    res.status(201).json({ success: true, data: order });
+    res.status(201).json({ success: true, message: 'Order placed successfully', data: order });
   } catch (error) { next(error); }
 };
 

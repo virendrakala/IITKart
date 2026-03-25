@@ -96,7 +96,7 @@ export const getUserOrders = async (req: AuthRequest, res: Response, next: NextF
         orderBy: { createdAt: 'desc' },
         include: {
           items: { include: { product: true } },
-          vendor: { select: { name: true, phone: true } },
+          vendor: { select: { name: true, user: { select: { phone: true } } } },
           courier: { select: { name: true, phone: true } }
         }
       }),
