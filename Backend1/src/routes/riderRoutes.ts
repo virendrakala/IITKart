@@ -20,5 +20,6 @@ router.get('/deliveries/history', riderController.getDeliveryHistory);
 router.get('/earnings', riderController.getEarnings);
 router.post('/issues', riderController.reportIssue);
 router.get('/jobs', riderController.getCourierJobs);
+router.get('/feedbacks', riderController.getFeedbacks);
 
 export default router;

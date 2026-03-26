@@ -39,22 +39,25 @@ export function CourierInterface() {
   const [activeDeliveries, setActiveDeliveries] = useState<any[]>([]);
   const [historyOrders, setHistoryOrders] = useState<any[]>([]);
   const [earningsData, setEarningsData] = useState<any>({});
+  const [feedbackData, setFeedbackData] = useState<{ feedbacks: any[], avgRating: string }>({ feedbacks: [], avgRating: "5.0" });
   
   const [incomingPopup, setIncomingPopup] = useState<{ open: boolean, order: any }>({ open: false, order: null });
 
   // Initial Data Fetch
   const fetchAllData = async () => {
     try {
-      const [pendRes, actRes, histRes, earnRes] = await Promise.all([
+      const [pendRes, actRes, histRes, earnRes, feedRes] = await Promise.all([
         api.get('/riders/deliveries/pending').catch(e => ({ data: { data: [] }})),
         api.get('/riders/deliveries/active').catch(e => ({ data: { data: [] }})),
         api.get('/riders/deliveries/history').catch(e => ({ data: { data: [] }})),
-        api.get('/riders/earnings').catch(e => ({ data: { data: null }}))
+        api.get('/riders/earnings').catch(e => ({ data: { data: null }})),
+        api.get('/riders/feedbacks').catch(e => ({ data: { data: { feedbacks: [], avgRating: "5.0" } } }))
       ]);
       setPendingOrders(pendRes?.data?.data || []);
       setActiveDeliveries(actRes?.data?.data || []);
       setHistoryOrders(histRes?.data?.data || []);
       setEarningsData(earnRes?.data?.data || null);
+      setFeedbackData(feedRes?.data?.data || { feedbacks: [], avgRating: "5.0" });
     } catch(err) { console.error('Failed to sync rider data:', err); }
   };
 
@@ -90,8 +93,8 @@ export function CourierInterface() {
   }, [incomingPopup.open]);
 
   const pendingCount = pendingOrders.length;
-  const avgRating = "5.0"; // Placeholder
-  const courierFeedback: any[] = []; // Fallback for removed mock data
+  const avgRating = feedbackData.avgRating || "5.0";
+  const courierFeedback: any[] = feedbackData.feedbacks || [];
 
   const [issueDialog, setIssueDialog]       = useState({ open: false, orderId: '' });
   const [issueType, setIssueType]           = useState('');
@@ -315,10 +318,16 @@ export function CourierInterface() {
                 ) : courierFeedback.map(o => (
                   <div key={o.id} className="bg-white dark:bg-[#0F1E3A] rounded-2xl border border-blue-100 dark:border-blue-900/30 p-4 shadow-sm">
                     <div className="flex items-center justify-between mb-2">
-                      <p className="font-mono text-slate-400 text-xs">#{o.id}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                          {o.user?.name ? o.user.name.charAt(0).toUpperCase() : 'U'}
+                        </span>
+                        <p className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{o.user?.name || 'Customer'}</p>
+                        <p className="text-slate-400 text-xs ml-2">{new Date(o.updatedAt).toLocaleDateString()}</p>
+                      </div>
                       <div className="flex gap-0.5">{[1,2,3,4,5].map(i => <Star key={i} className={`w-3.5 h-3.5 ${i <= (o.courierRating || 0) ? 'fill-amber-400 text-amber-400' : 'text-slate-200 dark:text-slate-700'}`} />)}</div>
                     </div>
-                    {o.courierFeedback && <p className="text-sm text-slate-600 dark:text-slate-300 italic">"{o.courierFeedback}"</p>}
+                    {o.courierFeedback && <p className="text-sm text-slate-600 dark:text-slate-300 italic mt-2">"{o.courierFeedback}"</p>}
                   </div>
                 ))}
               </div>

@@ -199,3 +199,34 @@ export const getCourierJobs = async (req: AuthRequest, res: Response, next: Next
     res.status(200).json({ success: true, data: jobs });
   } catch (error) { next(error); }
 };
+
+export const getFeedbacks = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const feedbacks = await prisma.order.findMany({
+      where: { 
+        courierId: req.user.id,
+        courierRating: { not: null }
+      },
+      select: {
+        id: true,
+        courierRating: true,
+        courierFeedback: true,
+        updatedAt: true,
+        user: { select: { name: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    const avgRating = feedbacks.length > 0
+      ? (feedbacks.reduce((acc, curr) => acc + (curr.courierRating || 0), 0) / feedbacks.length).toFixed(1)
+      : "5.0";
+
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        feedbacks,
+        avgRating
+      } 
+    });
+  } catch (error) { next(error); }
+};
