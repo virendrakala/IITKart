@@ -92,6 +92,12 @@ export function VendorInterface() {
   React.useEffect(() => { if (!currentUser || (currentUser.role !== 'VENDOR' && currentUser.role !== 'vendor')) navigate('/auth'); }, [currentUser, navigate]);
   if (!currentUser || (currentUser.role !== 'VENDOR' && currentUser.role !== 'vendor')) return null;
 
+  const getImageUrl = (url?: string | null) => {
+    if (!url) return '';
+    if (url.startsWith('http') || url.startsWith('data:')) return url;
+    return `http://localhost:5001${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
   const [activeTab, setActiveTab] = useState('orders');
   const vendor   = vendors.find(v => v.userId === currentUser.id);
   const vendorId = vendor?.id || currentUser.id;
@@ -278,7 +284,7 @@ export function VendorInterface() {
                     {vendorProducts.map(p => (
                       <div key={p.id} className="bg-white dark:bg-[#0F1E3A] rounded-2xl border border-blue-100 dark:border-blue-900/30 shadow-sm overflow-hidden group hover:-translate-y-0.5 hover:shadow-md transition-all">
                         <div className="relative">
-                          <img src={p.image} alt={p.name} className="w-full h-28 object-cover" />
+                          <img src={getImageUrl(p.image)} alt={p.name} className="w-full h-28 object-cover" />
                           <span className={`absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${p.inStock ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
                             {p.inStock ? 'In Stock' : 'Out'}
                           </span>

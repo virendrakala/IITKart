@@ -300,7 +300,7 @@ export function UserInterface() {
                         {vendorProducts.map(product => (
                           <div key={product.id} className="group bg-[#F0F4FF] dark:bg-[#0A1628] rounded-2xl overflow-hidden border border-blue-100/50 dark:border-blue-900/20 hover:shadow-lg hover:shadow-blue-900/10 hover:-translate-y-0.5 transition-all duration-200">
                             <div className="relative">
-                              <img src={product.image} alt={product.name} className="w-full h-28 object-cover" />
+                              <img src={getImageUrl(product.image)} alt={product.name} className="w-full h-28 object-cover" />
                               <button onClick={() => toggleFavorite(product.id)}
                                 className="absolute top-2 right-2 w-7 h-7 bg-white/90 dark:bg-slate-800/90 rounded-full flex items-center justify-center shadow hover:scale-110 transition-transform">
                                 <Heart className={`w-3.5 h-3.5 ${favorites.includes(product.id) ? 'fill-red-500 text-red-500' : 'text-slate-400'}`} />
@@ -677,7 +677,7 @@ export function UserInterface() {
                 if (!product) return null;
                 return (
                   <div key={item.productId} className="flex gap-3 bg-[#F0F4FF] dark:bg-[#0A1628] rounded-2xl p-3 border border-blue-100/50 dark:border-blue-900/20">
-                    <img src={product.image} alt={product.name} className="w-16 h-16 object-cover rounded-xl flex-shrink-0" />
+                    <img src={getImageUrl(product.image)} alt={product.name} className="w-16 h-16 object-cover rounded-xl flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <h4 className="font-bold text-[#0F172A] dark:text-white text-sm line-clamp-1">{product.name}</h4>
                       <p className="text-xs text-slate-400 mb-2">{product.vendorName}</p>
