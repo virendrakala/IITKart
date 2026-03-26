@@ -8,7 +8,6 @@ import {
   User as UserIcon,
   Store,
   Bike,
-  Shield,
   Eye,
   EyeOff,
   ArrowLeft,
@@ -126,7 +125,6 @@ export function AuthPage() {
     { value: 'CUSTOMER', label: 'Customer', icon: UserIcon },
     { value: 'VENDOR', label: 'Vendor', icon: Store },
     { value: 'RIDER', label: 'Delivery Partner', icon: Bike },
-    { value: 'ADMIN', label: 'Admin', icon: Shield },
   ];
 
   if (showForgotPassword) {
