@@ -41,6 +41,11 @@ async function main() {
     data: { name: 'Admin', email: 'admin@iitk.ac.in', passwordHash, role: 'admin' }
   });
 
+  // Super Admin
+  await prisma.user.create({
+    data: { name: 'Super Admin', email: 'superadmin@iitk.ac.in', passwordHash, role: 'admin' }
+  });
+
   // 2. Create Vendors and linked Users
   const vendorsData = [
     { email: 'amul@iitk.ac.in', name: 'Amul Parlour', location: 'OAT' },
