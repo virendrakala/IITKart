@@ -63,6 +63,21 @@ export function UserInterface() {
     phone: currentUser?.phone || '', address: currentUser?.address || '', photo: currentUser?.photo || ''
   });
 
+  // Sync settings data when currentUser changes (e.g., on page reload)
+  React.useEffect(() => {
+    if (currentUser) {
+      setSettingsData({
+        name: currentUser.name || '',
+        email: currentUser.email || '',
+        phone: currentUser.phone || '',
+        address: currentUser.address || '',
+        photo: currentUser.photo || ''
+      });
+      // Also sync delivery location when user data loads
+      setLocation(currentUser.address || '');
+    }
+  }, [currentUser?.id]); // Only depend on ID to avoid constant updates
+
   const [feedbackDialog, setFeedbackDialog] = useState<{ open: boolean; orderId: string; type: 'product' | 'courier' | 'vendor' }>({ open: false, orderId: '', type: 'product' });
   const [rating, setRating]   = useState(5);
   const [feedback, setFeedback] = useState('');
@@ -121,37 +136,65 @@ export function UserInterface() {
     const next = favorites.includes(id) ? favorites.filter(f => f !== id) : [...favorites, id];
     setFavorites(next);
     if (currentUser) updateUser(currentUser.id, { favorites: next });
-    toast.success(favorites.includes(id) ? 'Removed from favourites' : 'Added to favourites ❤️');
+    toast.success(favorites.includes(id) ? 'Removed from favorites' : 'Added to favorites');
   };
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (!location.trim()) { toast.error('Please enter a delivery location'); return; }
     if (!cart.length)     { toast.error('Your cart is empty'); return; }
-    const order = {
-      id: `ORD${Date.now()}`,
-      userId: currentUser.id,
-      vendorId: products.find(p => p.id === cart[0].productId)?.vendorId || '',
-      products: cart.map(i => ({ productId: i.productId, quantity: i.quantity, price: products.find(p => p.id === i.productId)?.price || 0 })),
-      total: cartTotal, status: 'pending' as const,
-      kartCoinsEarned: Math.floor(cartTotal * 0.1),
-      date: new Date().toISOString(), deliveryAddress: location,
-      paymentStatus: 'pending' as const, paymentMethod: 'UPI'
-    };
-    setPendingOrder(order); setShowPaymentModal(true); setShowCart(false);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please login first');
+        return;
+      }
+
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const response = await fetch(`${apiUrl}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          vendorId: products.find(p => p.id === cart[0].productId)?.vendorId || '',
+          items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
+          deliveryAddress: location,
+          paymentMethod: 'UPI'
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        toast.error(error.message || 'Failed to create order');
+        return;
+      }
+
+      const { data: createdOrder } = await response.json();
+
+      setPendingOrder(createdOrder);
+      setShowPaymentModal(true);
+      setShowCart(false);
+    } catch (error: any) {
+      console.error('Checkout error:', error);
+      toast.error(error.message || 'Checkout failed');
+    }
   };
 
   const handlePaymentSuccess = (paymentMethod: string, totalAmount: number) => {
     if (pendingOrder) {
-      addOrder({ ...pendingOrder, total: totalAmount, paymentStatus: paymentMethod === 'Cash on Delivery' ? 'pending' : 'completed', paymentMethod });
-      clearCart(); setShowPaymentModal(false); setPendingOrder(null);
-      toast.success(`Order placed! You earned ${pendingOrder.kartCoinsEarned} Kart Coins! 🪙`);
-      setActiveTab('transactions');
+      clearCart();
+      setShowPaymentModal(false);
+      setPendingOrder(null);
+      toast.success(`Order placed! You earned ${pendingOrder.kartCoinsEarned} Kart Coins`);
+      setActiveTab('orders');
     }
   };
 
   const handleFeedbackSubmit = () => {
     rateOrder(feedbackDialog.orderId, feedbackDialog.type, rating, feedback);
-    toast.success('Feedback submitted! Thank you 🙏');
+    toast.success('Feedback submitted successfully');
     setFeedbackDialog({ open: false, orderId: '', type: 'product' });
     setRating(5); setFeedback('');
   };
@@ -179,7 +222,12 @@ export function UserInterface() {
 
   const printReceipt = (order: any) => {
     const w = window.open('', '_blank');
-    if (w) { w.document.write(`<html><head><title>Receipt</title><style>body{font-family:monospace;white-space:pre;padding:20px}</style></head><body>${generateReceipt(order)}</body></html>`); w.document.close(); w.focus(); setTimeout(() => w.print(), 250); }
+    if (w) {
+      w.document.write(`<html><head><title>Receipt</title><style>body{font-family:monospace;white-space:pre;padding:20px}</style></head><body>${generateReceipt(order)}</body></html>`);
+      w.document.close();
+      w.focus();
+      setTimeout(() => w.print(), 250);
+    }
   };
 
   if (authLoading) return null;
@@ -618,7 +666,7 @@ export function UserInterface() {
                     );
                   })}
                   <div className="flex gap-3 pt-2">
-                    <button onClick={async () => { 
+                    <button onClick={async () => {
                       try {
                         let photoRef = settingsData.photo;
                         // Handle FormData if file was selected
@@ -626,6 +674,7 @@ export function UserInterface() {
                           const formData = new FormData();
                           formData.append('photo', (settingsData as any).photoFile);
                           formData.append('name', settingsData.name);
+                          formData.append('email', settingsData.email);
                           formData.append('phone', settingsData.phone);
                           formData.append('address', settingsData.address);
                           // We bypass context updateUser purely for the file upload, then sync state
@@ -637,10 +686,19 @@ export function UserInterface() {
                             toast.success('Settings & Photo saved!');
                           }
                         }
-                        
-                        // Fallback context update
-                        updateUser(currentUser.id, { ...settingsData, photo: photoRef }); 
-                        toast.success('Settings saved!'); 
+
+                        // Update all user data
+                        updateUser(currentUser.id, {
+                          name: settingsData.name,
+                          email: settingsData.email,
+                          phone: settingsData.phone,
+                          address: settingsData.address,
+                          photo: photoRef
+                        });
+
+                        // Clear photoFile after save
+                        setSettingsData(prev => ({ ...prev, photoFile: undefined } as any));
+                        toast.success('Settings saved!');
                       } catch (e) {
                         toast.error('Failed to save settings');
                       }

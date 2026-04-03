@@ -11,12 +11,19 @@ interface PaymentModalProps {
   onPaymentSuccess: (paymentMethod: string, totalAmount: number) => void;
 }
 
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 export function PaymentModal({ open, onOpenChange, order, onPaymentSuccess }: PaymentModalProps) {
   const { currentUser } = useApp();
   const [selectedMethod, setSelectedMethod] = useState<'upi' | 'cod'>('upi');
   const [paymentStep, setPaymentStep] = useState<'select' | 'processing' | 'success'>('select');
   const [receipt, setReceipt] = useState('');
   const [dots, setDots] = useState('');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (open) { setPaymentStep('select'); setSelectedMethod('upi'); setReceipt(''); }
@@ -27,6 +34,17 @@ export function PaymentModal({ open, onOpenChange, order, onPaymentSuccess }: Pa
     const iv = setInterval(() => setDots(d => d.length >= 3 ? '' : d + '.'), 400);
     return () => clearInterval(iv);
   }, [paymentStep]);
+
+  // Load Razorpay script
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    document.body.appendChild(script);
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
 
   if (!order) return null;
 
@@ -39,15 +57,127 @@ export function PaymentModal({ open, onOpenChange, order, onPaymentSuccess }: Pa
     { id: 'cod' as const, name: 'Cash on Delivery', icon: Banknote, description: 'Pay when you receive your order', badge: null },
   ];
 
-  const initiatePayment = () => {
+  const initiateRazorpayPayment = async () => {
+    setPaymentStep('processing');
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please login first');
+        setPaymentStep('select');
+        setLoading(false);
+        return;
+      }
+
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const orderResponse = await fetch(`${apiUrl}/payments/create-razorpay-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          amount: totalAmount,
+          currency: 'INR',
+          orderId: order.id
+        })
+      });
+
+      if (!orderResponse.ok) {
+        const error = await orderResponse.json();
+        toast.error(error.message || 'Failed to create order');
+        setPaymentStep('select');
+        setLoading(false);
+        return;
+      }
+
+      const { data } = await orderResponse.json();
+
+      const options = {
+        key: data.key,
+        amount: data.amount,
+        currency: data.currency,
+        order_id: data.razorpayOrderId,
+        name: 'IITKart',
+        description: `Order ${order.id}`,
+        prefill: {
+          email: currentUser?.email,
+          contact: currentUser?.phone,
+          name: currentUser?.name
+        },
+        method: {
+          upi: true,
+          card: false,
+          netbanking: false,
+          wallet: false
+        },
+        handler: async (response: any) => {
+          const verifyResponse = await fetch(`${apiUrl}/payments/verify-payment`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpaySignature: response.razorpay_signature,
+              orderId: order.id,
+              method: 'UPI'
+            })
+          });
+
+          if (!verifyResponse.ok) {
+            toast.error('Payment verification failed');
+            setPaymentStep('select');
+            setLoading(false);
+            return;
+          }
+
+          const paymentID = response.razorpay_payment_id;
+          const receiptText = `\n╔════════════════════════════════╗\n║       PAYMENT RECEIPT         ║\n║          IITKart              ║\n╠════════════════════════════════╣\n║ Order: ${order.id}\n║ Payment: ${paymentID}\n║ Date: ${new Date().toLocaleString('en-IN')}\n║\n║ Item Total:     ₹${itemTotal.toFixed(2)}\n║ Delivery:       ₹${deliveryCharges.toFixed(2)}\n║ ────────────────────────────\n║ TOTAL:          ₹${totalAmount.toFixed(2)}\n║\n║ Method: UPI Payment\n║ Status: SUCCESS\n║\n║ Address: ${order.deliveryAddress}\n╚════════════════════════════════╝\n\nThank you for ordering with IITKart!`;
+          setReceipt(receiptText);
+          setPaymentStep('success');
+          setLoading(false);
+          toast.success('Payment successful');
+        },
+        modal: {
+          ondismiss: () => {
+            setPaymentStep('select');
+            setLoading(false);
+            toast.error('Payment cancelled');
+          }
+        }
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+    } catch (error: any) {
+      console.error('Payment error:', error);
+      toast.error(error.message || 'Payment failed');
+      setPaymentStep('select');
+      setLoading(false);
+    }
+  };
+
+  const initiateCODOrder = () => {
     setPaymentStep('processing');
     setTimeout(() => {
-      const paymentID = `PAY${Date.now()}`;
-      const receiptText = `\n╔════════════════════════════════╗\n║       PAYMENT RECEIPT         ║\n║          IITKart              ║\n╠════════════════════════════════╣\n║ Order: ${order.id}\n║ Payment: ${paymentID}\n║ Date: ${new Date().toLocaleString('en-IN')}\n║\n║ Item Total:     ₹${itemTotal.toFixed(2)}\n║ Delivery:       ₹${deliveryCharges.toFixed(2)}\n║ ────────────────────────────\n║ TOTAL:          ₹${totalAmount.toFixed(2)}\n║\n║ Method: ${selectedMethod === 'upi' ? 'UPI Payment' : 'Cash on Delivery'}\n║ Status: ${selectedMethod === 'cod' ? 'PENDING (COD)' : 'SUCCESS ✓'}\n║\n║ Address: ${order.deliveryAddress}\n╚════════════════════════════════╝\n\nThank you for ordering with IITKart!`;
+      const paymentID = `COD${Date.now()}`;
+      const receiptText = `\n╔════════════════════════════════╗\n║       ORDER RECEIPT           ║\n║          IITKart              ║\n╠════════════════════════════════╣\n║ Order: ${order.id}\n║ Reference: ${paymentID}\n║ Date: ${new Date().toLocaleString('en-IN')}\n║\n║ Item Total:     ₹${itemTotal.toFixed(2)}\n║ Delivery:       ₹${deliveryCharges.toFixed(2)}\n║ ────────────────────────────\n║ TOTAL:          ₹${totalAmount.toFixed(2)}\n║\n║ Method: Cash on Delivery\n║ Status: PENDING (COD)\n║\n║ Address: ${order.deliveryAddress}\n╚════════════════════════════════╝\n\nThank you for ordering with IITKart!`;
       setReceipt(receiptText);
       setPaymentStep('success');
-      toast.success(selectedMethod === 'cod' ? 'Order placed! Pay on delivery.' : 'Payment successful! 🎉');
+      toast.success('Order placed! Pay on delivery');
     }, 1800);
+  };
+
+  const initiatePayment = () => {
+    if (selectedMethod === 'upi') {
+      initiateRazorpayPayment();
+    } else {
+      initiateCODOrder();
+    }
   };
 
   const downloadReceipt = () => {
@@ -66,14 +196,14 @@ export function PaymentModal({ open, onOpenChange, order, onPaymentSuccess }: Pa
     setPaymentStep('select'); setSelectedMethod('upi'); setReceipt('');
   };
 
-  const handleClose = () => { 
-    if (paymentStep === 'success') { 
-      handleCompleteOrder(); 
-    } else { 
-      setPaymentStep('select'); 
-      setSelectedMethod('upi'); 
-      onOpenChange(false); 
-    } 
+  const handleClose = () => {
+    if (paymentStep === 'success') {
+      handleCompleteOrder();
+    } else {
+      setPaymentStep('select');
+      setSelectedMethod('upi');
+      onOpenChange(false);
+    }
   };
 
   return (
@@ -95,7 +225,7 @@ export function PaymentModal({ open, onOpenChange, order, onPaymentSuccess }: Pa
             <DialogTitle className="text-xl font-extrabold text-[#0F172A] dark:text-white" style={{ fontFamily: 'Syne, sans-serif' }}>
               {paymentStep === 'select' && 'Complete Payment'}
               {paymentStep === 'processing' && `Processing${dots}`}
-              {paymentStep === 'success' && 'Order Confirmed! 🎉'}
+              {paymentStep === 'success' && 'Order Confirmed'}
             </DialogTitle>
             <DialogDescription className="text-slate-500 dark:text-slate-400 text-sm">
               {paymentStep === 'select' && 'Choose your preferred payment method'}
@@ -178,14 +308,16 @@ export function PaymentModal({ open, onOpenChange, order, onPaymentSuccess }: Pa
                 <button
                   type="button" onClick={handleClose}
                   className="flex-1 h-12 rounded-xl border-2 border-blue-100 dark:border-blue-900/30 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                  disabled={loading}
                 >
                   Cancel
                 </button>
                 <button
                   type="button" onClick={initiatePayment}
-                  className="flex-1 h-12 rounded-xl bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white font-bold text-sm transition-all shadow-lg shadow-blue-900/20 hover:shadow-xl active:scale-95"
+                  disabled={loading}
+                  className="flex-1 h-12 rounded-xl bg-[#1E3A8A] hover:bg-[#2B4FBA] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm transition-all shadow-lg shadow-blue-900/20 hover:shadow-xl active:scale-95"
                 >
-                  {selectedMethod === 'cod' ? 'Place Order' : `Pay ₹${totalAmount.toFixed(2)}`}
+                  {loading ? 'Processing...' : (selectedMethod === 'cod' ? 'Place Order' : `Pay ₹${totalAmount.toFixed(2)}`)}
                 </button>
               </div>
             </div>
@@ -200,7 +332,7 @@ export function PaymentModal({ open, onOpenChange, order, onPaymentSuccess }: Pa
                 </div>
               </div>
               <p className="text-slate-600 dark:text-slate-300 text-center text-sm">
-                {selectedMethod === 'cod' ? 'Confirming your order...' : 'Processing your payment...'}
+                {selectedMethod === 'cod' ? 'Confirming your order...' : 'Redirecting to Razorpay...'}
               </p>
             </div>
           )}

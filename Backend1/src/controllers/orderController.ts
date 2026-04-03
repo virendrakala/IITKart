@@ -7,13 +7,18 @@ import { orderService } from '../services/orderService';
 export const placeOrder = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { vendorId, items, deliveryAddress, paymentMethod } = req.body;
-    
+
+    // Validate deliveryAddress
+    if (!deliveryAddress || !deliveryAddress.trim()) {
+      return next(new AppError('Delivery address is required', 400));
+    }
+
     const validatedVendorId = await orderService.validateSingleVendorCart(items);
     if (validatedVendorId !== vendorId) throw new AppError('Vendor mismatch', 400);
 
     const productIds = items.map((i: any) => i.productId);
     const products = await prisma.product.findMany({ where: { id: { in: productIds } } });
-    
+
     let total = 0;
     const orderItemsData = items.map((item: any) => {
       const product = products.find(p => p.id === item.productId);
@@ -34,7 +39,7 @@ export const placeOrder = async (req: AuthRequest, res: Response, next: NextFunc
           userId: req.user.id,
           vendorId,
           total,
-          deliveryAddress,
+          deliveryAddress: deliveryAddress.trim(),
           paymentMethod,
           kartCoinsEarned,
           items: {
@@ -73,6 +78,12 @@ export const getOrderById = async (req: AuthRequest, res: Response, next: NextFu
       include: { vendor: true, courier: true, items: { include: { product: true } } }
     });
     if (!order) return next(new AppError('Order not found', 404));
+
+    // Check authorization: users can only see their own orders, admins/vendors can see all
+    if (req.user.role === 'user' && order.userId !== req.user.id) {
+      return next(new AppError('Unauthorized: Cannot view other user orders', 403));
+    }
+
     res.status(200).json({ success: true, data: order });
   } catch (error) { next(error); }
 };
@@ -80,7 +91,13 @@ export const getOrderById = async (req: AuthRequest, res: Response, next: NextFu
 export const updateOrderStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { status } = req.body;
-    
+
+    // Validate status
+    const validStatuses = ['pending', 'accepted', 'picked', 'delivered', 'cancelled'];
+    if (!status || !validStatuses.includes(status)) {
+      return next(new AppError(`Invalid status. Must be one of: ${validStatuses.join(', ')}`, 400));
+    }
+
     const existingOrder = await prisma.order.findUnique({
       where: { id: req.params.id }
     });
@@ -88,7 +105,7 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response, next: N
 
     // Idempotency check: don't process if status is already the same
     if (existingOrder.status === status) {
-      return res.status(200).json({ success: true, data: existingOrder });
+      return res.status(200).json({ success: true, data: existingOrder, message: 'Order status already updated' });
     }
 
     const order = await prisma.order.update({
@@ -100,24 +117,44 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response, next: N
       await orderService.processOrderDelivery(order.id);
     }
 
-    res.status(200).json({ success: true, data: order });
+    res.status(200).json({ success: true, data: order, message: `Order status updated to ${status}` });
   } catch (error) { next(error); }
 };
 
 export const assignCourier = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { courierId } = req.body;
-    const order = await prisma.order.update({
+
+    // Validate courierId
+    if (!courierId) {
+      return next(new AppError('Courier ID is required', 400));
+    }
+
+    // Check if order exists
+    const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!order) return next(new AppError('Order not found', 404));
+
+    // Check if courier exists
+    const courier = await prisma.courierProfile.findUnique({ where: { userId: courierId } });
+    if (!courier) return next(new AppError('Courier not found', 404));
+
+    const updatedOrder = await prisma.order.update({
       where: { id: req.params.id },
       data: { courierId }
     });
-    res.status(200).json({ success: true, data: order });
+    res.status(200).json({ success: true, data: updatedOrder, message: 'Courier assigned successfully' });
   } catch (error) { next(error); }
 };
 
 export const rateOrder = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { type, rating, feedback } = req.body;
+
+    // Validate rating is between 1-5
+    if (!rating || rating < 1 || rating > 5) {
+      return next(new AppError('Rating must be between 1 and 5', 400));
+    }
+
     const data: any = {};
     if (type === 'vendor') { data.vendorRating = rating; data.vendorFeedback = feedback; }
     else if (type === 'courier') { data.courierRating = rating; data.courierFeedback = feedback; }
@@ -134,12 +171,21 @@ export const rateOrder = async (req: AuthRequest, res: Response, next: NextFunct
 export const submitComplaint = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { subject, description, type } = req.body;
+
+    // Validate required fields
+    if (!subject || !subject.trim()) {
+      return next(new AppError('Complaint subject is required', 400));
+    }
+    if (!description || !description.trim()) {
+      return next(new AppError('Complaint description is required', 400));
+    }
+
     const complaint = await prisma.complaint.create({
       data: {
         userId: req.user.id,
         orderId: req.params.id,
-        subject,
-        description,
+        subject: subject.trim(),
+        description: description.trim(),
         type
       }
     });
@@ -151,6 +197,10 @@ export const getActiveOrders = async (req: AuthRequest, res: Response, next: Nex
   try {
     const orders = await prisma.order.findMany({
       where: { status: { in: ['pending', 'accepted', 'picked'] } },
+      include: {
+        vendor: { select: { name: true } },
+        items: { include: { product: true } }
+      },
       orderBy: { createdAt: 'desc' }
     });
     res.status(200).json({ success: true, data: orders });

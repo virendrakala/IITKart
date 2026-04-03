@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import api from '@/api/axios';export interface Product {
+import api from '@/api/axios';
+
+export interface Product {
   id: string;
   vendorId: string;
   vendorName: string;
@@ -331,8 +333,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   React.useEffect(() => {
     const fetchInitialData = async () => {
-      // Expose api patch for direct file uploads in components
-      (window as any).apiPatch = api.patch;
       try {
         const [vendorsRes, productsRes] = await Promise.all([
           api.get('/vendors'),
@@ -863,15 +863,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const capturePayment = (razorpayPaymentID: string, razorpayOrderID: string, razorpaySignature: string, method: RazorpayPayment['method']) => {
+    const existingPayment = payments.find(p => p.paymentID === razorpayPaymentID);
+    if (existingPayment) return;
+
     const newPayment: Payment = {
-      paymentID: `PAY${payments.length + 1}`,
+      paymentID: razorpayPaymentID,
       orderID: razorpayOrderID,
       userID: currentUser?.id || '',
-      amount: parseFloat(razorpayPaymentID) / 100, // Assuming razorpayPaymentID is a string representation of the amount in paise
+      amount: 0,
       currency: 'INR',
       paymentStatus: 'success',
       createdAt: new Date().toISOString(),
-      receipt: generateReceipt(`PAY${payments.length + 1}`)
+      receipt: generateReceipt(razorpayPaymentID)
     };
     setPayments(prev => [...prev, newPayment]);
   };
