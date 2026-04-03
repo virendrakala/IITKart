@@ -16,7 +16,6 @@ api.interceptors.request.use(
       if (token) {
         (config.headers as any).Authorization = `Bearer ${token}`;
       }
-      // Let browser set the proper Content-Type with boundary for FormData
       if (config.data instanceof FormData) {
         delete (config.headers as any)['Content-Type'];
       }
@@ -24,6 +23,22 @@ api.interceptors.request.use(
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+// Response interceptor to handle 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      try {
+        localStorage.removeItem('token');
+      } catch (e) {
+        // Ignore errors on logout
+      }
+      window.location.href = '/auth';
+    }
+    return Promise.reject(error);
+  }
 );
 
 export default api;

@@ -4,6 +4,11 @@ node_modules
 .env
 
 /generated/prisma
-Backend1/logs/
+Backend1/logs/combined.log
+Backend1/dist/
 Backend1/uploads/*
 !Backend1/uploads/.gitkeep
+frontend/dist/
+frontend/.vite/
+Backend1/.env
+frontend/.env

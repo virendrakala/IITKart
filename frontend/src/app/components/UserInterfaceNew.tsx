@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PaymentModal } from '@/app/components/PaymentModal';
+import { isValidPhone } from '@/app/utils/validation';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -54,6 +55,7 @@ export function UserInterface() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [shopFilter, setShopFilter]   = useState<'all' | 'bestsellers' | 'favorites'>('all');
   const [showCart, setShowCart]       = useState(false);
+  const [useKartCoins, setUseKartCoins] = useState(false);
   const [location, setLocation]       = useState(currentUser?.address || '');
   const [selectedVendor, setSelectedVendor] = useState('all');
   const [favorites, setFavorites]     = useState<string[]>(currentUser?.favorites || []);
@@ -62,6 +64,21 @@ export function UserInterface() {
     name: currentUser?.name || '', email: currentUser?.email || '',
     phone: currentUser?.phone || '', address: currentUser?.address || '', photo: currentUser?.photo || ''
   });
+
+  // Sync settings data when currentUser changes (e.g., on page reload)
+  React.useEffect(() => {
+    if (currentUser) {
+      setSettingsData({
+        name: currentUser.name || '',
+        email: currentUser.email || '',
+        phone: currentUser.phone || '',
+        address: currentUser.address || '',
+        photo: currentUser.photo || ''
+      });
+      // Also sync delivery location when user data loads
+      setLocation(currentUser.address || '');
+    }
+  }, [currentUser?.id]); // Only depend on ID to avoid constant updates
 
   const [feedbackDialog, setFeedbackDialog] = useState<{ open: boolean; orderId: string; type: 'product' | 'courier' | 'vendor' }>({ open: false, orderId: '', type: 'product' });
   const [rating, setRating]   = useState(5);
@@ -107,7 +124,7 @@ export function UserInterface() {
   const userOrders    = currentUser ? orders.filter(o => o.userId === currentUser.id) : [];
   const pendingOrders = userOrders.filter(o => o.status !== 'delivered').length;
   const cartTotal      = cart.reduce((s, i) => s + (products.find(p => p.id === i.productId)?.price || 0) * i.quantity, 0);
-  const deliveryCharges = 30;
+  const deliveryCharges = useKartCoins ? 0 : 30;
   const orderTotal     = cartTotal + deliveryCharges;
   const cartCount      = cart.reduce((s, i) => s + i.quantity, 0);
 
@@ -121,37 +138,66 @@ export function UserInterface() {
     const next = favorites.includes(id) ? favorites.filter(f => f !== id) : [...favorites, id];
     setFavorites(next);
     if (currentUser) updateUser(currentUser.id, { favorites: next });
-    toast.success(favorites.includes(id) ? 'Removed from favourites' : 'Added to favourites ❤️');
+    toast.success(favorites.includes(id) ? 'Removed from favorites' : 'Added to favorites');
   };
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (!location.trim()) { toast.error('Please enter a delivery location'); return; }
     if (!cart.length)     { toast.error('Your cart is empty'); return; }
-    const order = {
-      id: `ORD${Date.now()}`,
-      userId: currentUser.id,
-      vendorId: products.find(p => p.id === cart[0].productId)?.vendorId || '',
-      products: cart.map(i => ({ productId: i.productId, quantity: i.quantity, price: products.find(p => p.id === i.productId)?.price || 0 })),
-      total: cartTotal, status: 'pending' as const,
-      kartCoinsEarned: Math.floor(cartTotal * 0.1),
-      date: new Date().toISOString(), deliveryAddress: location,
-      paymentStatus: 'pending' as const, paymentMethod: 'UPI'
-    };
-    setPendingOrder(order); setShowPaymentModal(true); setShowCart(false);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please login first');
+        return;
+      }
+
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const response = await fetch(`${apiUrl}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          vendorId: products.find(p => p.id === cart[0].productId)?.vendorId || '',
+          items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
+          deliveryAddress: location,
+          paymentMethod: 'UPI',
+          useKartCoins
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        toast.error(error.message || 'Failed to create order');
+        return;
+      }
+
+      const { data: createdOrder } = await response.json();
+
+      setPendingOrder(createdOrder);
+      setShowPaymentModal(true);
+      setShowCart(false);
+    } catch (error: any) {
+      console.error('Checkout error:', error);
+      toast.error(error.message || 'Checkout failed');
+    }
   };
 
   const handlePaymentSuccess = (paymentMethod: string, totalAmount: number) => {
     if (pendingOrder) {
-      addOrder({ ...pendingOrder, total: totalAmount, paymentStatus: paymentMethod === 'Cash on Delivery' ? 'pending' : 'completed', paymentMethod });
-      clearCart(); setShowPaymentModal(false); setPendingOrder(null);
-      toast.success(`Order placed! You earned ${pendingOrder.kartCoinsEarned} Kart Coins! 🪙`);
-      setActiveTab('transactions');
+      clearCart();
+      setShowPaymentModal(false);
+      setPendingOrder(null);
+      toast.success(`Order placed! You earned ${pendingOrder.kartCoinsEarned} Kart Coins`);
+      setActiveTab('orders');
     }
   };
 
   const handleFeedbackSubmit = () => {
     rateOrder(feedbackDialog.orderId, feedbackDialog.type, rating, feedback);
-    toast.success('Feedback submitted! Thank you 🙏');
+    toast.success('Feedback submitted successfully');
     setFeedbackDialog({ open: false, orderId: '', type: 'product' });
     setRating(5); setFeedback('');
   };
@@ -179,7 +225,12 @@ export function UserInterface() {
 
   const printReceipt = (order: any) => {
     const w = window.open('', '_blank');
-    if (w) { w.document.write(`<html><head><title>Receipt</title><style>body{font-family:monospace;white-space:pre;padding:20px}</style></head><body>${generateReceipt(order)}</body></html>`); w.document.close(); w.focus(); setTimeout(() => w.print(), 250); }
+    if (w) {
+      w.document.write(`<html><head><title>Receipt</title><style>body{font-family:monospace;white-space:pre;padding:20px}</style></head><body>${generateReceipt(order)}</body></html>`);
+      w.document.close();
+      w.focus();
+      setTimeout(() => w.print(), 250);
+    }
   };
 
   if (authLoading) return null;
@@ -317,6 +368,13 @@ export function UserInterface() {
                             <div className="p-3">
                               <h4 className="font-bold text-[#0F172A] dark:text-white text-xs leading-tight mb-1 line-clamp-1">{product.name}</h4>
                               <p className="text-slate-400 text-[10px] mb-2 line-clamp-1">{product.description}</p>
+                              {product.rating ? (
+                                <div className="flex items-center gap-1 mb-1.5">
+                                  <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{product.rating.toFixed(1)}</span>
+                                  <span className="text-[10px] text-slate-400">({product.totalReviews})</span>
+                                </div>
+                              ) : null}
                               <div className="flex items-center justify-between">
                                 <span className="font-extrabold text-[#1E3A8A] dark:text-blue-300 text-sm">₹{product.price}</span>
                                 <button onClick={() => { addToCart(product.id); toast.success('Added to cart!'); }}
@@ -532,7 +590,7 @@ export function UserInterface() {
                       <span className="text-6xl font-extrabold" style={{ fontFamily: 'Syne, sans-serif' }}>{currentUser.kartCoins}</span>
                       <Coins className="w-10 h-10 text-[#F97316] mb-2" />
                     </div>
-                    <p className="text-white/50 text-sm">≈ ₹{(currentUser.kartCoins * 0.1).toFixed(2)} in rewards</p>
+                    <p className="text-white/50 text-sm">≈ ₹{(currentUser.kartCoins).toFixed(2)} in rewards</p>
                   </div>
                 </div>
                 <div className="bg-white dark:bg-[#0F1E3A] rounded-2xl border border-blue-100 dark:border-blue-900/30 shadow-sm p-5">
@@ -557,7 +615,7 @@ export function UserInterface() {
                   <ul className="space-y-1.5 text-sm text-slate-600 dark:text-slate-400">
                     <li className="flex items-center gap-2"><span className="text-[#F97316]">•</span> Earn 10% of order value as Kart Coins</li>
                     <li className="flex items-center gap-2"><span className="text-[#F97316]">•</span> Use Kart Coins for discounts on future orders</li>
-                    <li className="flex items-center gap-2"><span className="text-[#F97316]">•</span> 10 Kart Coins = ₹1 discount</li>
+                    <li className="flex items-center gap-2"><span className="text-[#F97316]">•</span> 1 Kart Coin = ₹1 discount</li>
                   </ul>
                 </div>
               </div>
@@ -611,41 +669,73 @@ export function UserInterface() {
                     return (
                       <div key={f.field} className="space-y-1">
                         <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" />{f.label}</Label>
-                        <Input type={f.type} placeholder={f.placeholder} value={(settingsData as any)[f.field]}
-                          onChange={e => setSettingsData({ ...settingsData, [f.field]: e.target.value })}
-                          className="h-11 bg-[#F0F4FF] dark:bg-[#0A1628] border-blue-100 dark:border-blue-900/30 rounded-xl focus:border-[#1E3A8A]" />
+                        <Input 
+                          type={f.type} 
+                          placeholder={f.placeholder} 
+                          value={(settingsData as any)[f.field]}
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (f.field === 'phone') {
+                              val = val.replace(/\D/g, '').slice(0, 10);
+                            }
+                            setSettingsData({ ...settingsData, [f.field]: val });
+                          }}
+                          className={`h-11 bg-[#F0F4FF] dark:bg-[#0A1628] border-blue-100 dark:border-blue-900/30 rounded-xl focus:border-[#1E3A8A] ${
+                            f.field === 'phone' && settingsData.phone && !isValidPhone(settingsData.phone) ? 'border-red-500 focus:border-red-500' : ''
+                          }`} 
+                        />
+                        {f.field === 'phone' && settingsData.phone && !isValidPhone(settingsData.phone) && (
+                          <p className="text-[10px] text-red-500 mt-1 pl-1 font-semibold">
+                            Phone number must be exactly 10 digits
+                          </p>
+                        )}
                       </div>
                     );
                   })}
                   <div className="flex gap-3 pt-2">
-                    <button onClick={async () => { 
-                      try {
-                        let photoRef = settingsData.photo;
-                        // Handle FormData if file was selected
-                        if ((settingsData as any).photoFile) {
-                          const formData = new FormData();
-                          formData.append('photo', (settingsData as any).photoFile);
-                          formData.append('name', settingsData.name);
-                          formData.append('phone', settingsData.phone);
-                          formData.append('address', settingsData.address);
-                          // We bypass context updateUser purely for the file upload, then sync state
-                          const res = await (window as any).apiPatch?.('/users/profile', formData, {
-                             headers: { 'Content-Type': 'multipart/form-data' }
-                          });
-                          if (res?.data?.data) {
-                            photoRef = res.data.data.photo;
-                            toast.success('Settings & Photo saved!');
-                          }
+                      <button onClick={async () => {
+                        if (!isValidPhone(settingsData.phone)) {
+                          toast.error('Please enter a valid 10-digit phone number');
+                          return;
                         }
-                        
-                        // Fallback context update
-                        updateUser(currentUser.id, { ...settingsData, photo: photoRef }); 
-                        toast.success('Settings saved!'); 
-                      } catch (e) {
-                        toast.error('Failed to save settings');
-                      }
-                    }}
-                      className="flex-1 h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white font-bold rounded-xl transition-all shadow-md active:scale-95 text-sm">Save Changes</button>
+                        try {
+                          let photoRef = settingsData.photo;
+                          // Handle FormData if file was selected
+                          if ((settingsData as any).photoFile) {
+                            const formData = new FormData();
+                            formData.append('photo', (settingsData as any).photoFile);
+                            formData.append('name', settingsData.name);
+                            formData.append('email', settingsData.email);
+                            formData.append('phone', settingsData.phone);
+                            formData.append('address', settingsData.address);
+                            // We bypass context updateUser purely for the file upload, then sync state
+                            const res = await (window as any).apiPatch?.('/users/profile', formData, {
+                               headers: { 'Content-Type': 'multipart/form-data' }
+                            });
+                            if (res?.data?.data) {
+                              photoRef = res.data.data.photo;
+                              toast.success('Settings & Photo saved!');
+                            }
+                          }
+
+                          // Update all user data
+                          updateUser(currentUser.id, {
+                            name: settingsData.name,
+                            email: settingsData.email,
+                            phone: settingsData.phone,
+                            address: settingsData.address,
+                            photo: photoRef
+                          });
+
+                          // Clear photoFile after save
+                          setSettingsData(prev => ({ ...prev, photoFile: undefined } as any));
+                          toast.success('Settings saved!');
+                        } catch (e) {
+                          toast.error('Failed to save settings');
+                        }
+                      }}
+                        disabled={!isValidPhone(settingsData.phone)}
+                        className="flex-1 h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-md active:scale-95 text-sm">Save Changes</button>
                     <button onClick={() => { logout(); navigate('/auth'); }}
                       className="flex-1 h-11 border-2 border-red-200 dark:border-red-900/30 text-red-500 font-bold rounded-xl hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors text-sm">Logout</button>
                   </div>
@@ -702,9 +792,33 @@ export function UserInterface() {
             </div>
             {cart.length > 0 && (
               <div className="p-4 border-t border-blue-100 dark:border-blue-900/30 space-y-3">
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 border border-blue-100 dark:border-blue-800/30">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-bold text-[#1E3A8A] dark:text-blue-300 flex items-center gap-1.5"><Coins className="w-4 h-4 text-[#F97316]"/> Kart Coins</span>
+                    <span className="text-xs font-bold bg-[#1E3A8A] text-white px-2 py-0.5 rounded-full">{currentUser.kartCoins} Available</span>
+                  </div>
+                  <label className={`flex items-center gap-2 mt-2 cursor-pointer ${currentUser.kartCoins < 30 ? 'opacity-50' : ''}`}>
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 rounded text-[#1E3A8A] focus:ring-[#1E3A8A]" 
+                      checked={useKartCoins}
+                      onChange={(e) => setUseKartCoins(e.target.checked)}
+                      disabled={currentUser.kartCoins < 30}
+                    />
+                    <span className="text-sm text-slate-700 dark:text-slate-300 font-semibold">Use 30 Kart Coins for free delivery</span>
+                  </label>
+                  {currentUser.kartCoins < 30 && (
+                    <p className="text-[10px] text-red-500 mt-1 ml-6">You need {30 - currentUser.kartCoins} more coins to unlock free delivery.</p>
+                  )}
+                </div>
                 <div className="space-y-1.5 text-sm">
                   <div className="flex justify-between text-slate-500"><span>Item Total</span><span>₹{cartTotal.toFixed(2)}</span></div>
-                  <div className="flex justify-between text-slate-500"><span>Delivery</span><span>₹{deliveryCharges.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-slate-500">
+                    <span>Delivery</span>
+                    <span className={useKartCoins ? "text-emerald-500 font-bold" : ""}>
+                      {useKartCoins ? "FREE (₹0.00)" : `₹${deliveryCharges.toFixed(2)}`}
+                    </span>
+                  </div>
                   <div className="flex justify-between font-extrabold text-[#0F172A] dark:text-white text-base pt-1.5 border-t border-blue-50 dark:border-blue-900/20">
                     <span>Total</span><span className="text-[#1E3A8A] dark:text-blue-300">₹{orderTotal.toFixed(2)}</span>
                   </div>

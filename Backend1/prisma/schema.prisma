@@ -69,7 +69,7 @@ model User {
   email        String     @unique
   passwordHash String
   role         Role       @default(user)
-  phone        String?
+  phone        String?    @unique
   address      String?
   photo        String?
   kartCoins    Int        @default(0)
@@ -129,6 +129,7 @@ model Product {
   isBestseller Boolean  @default(false)
   rating       Float?
   totalReviews Int      @default(0)
+  stockQuantity Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -159,6 +160,8 @@ model Order {
   total           Float
   status          OrderStatus   @default(pending)
   kartCoinsEarned Int           @default(0)
+  kartCoinsUsed   Int           @default(0)
+  coinsProcessed  Boolean       @default(false)
   deliveryAddress String
   paymentStatus   PaymentStatus @default(pending)
   paymentMethod   String        @default("UPI")
@@ -273,7 +276,7 @@ model PendingUser {
   email        String   @unique
   passwordHash String
   role         Role
-  phone        String?
+  phone        String?   @unique
   address      String?
   otp          String
   otpExpiry    DateTime

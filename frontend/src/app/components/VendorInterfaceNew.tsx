@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp, Product } from '@/app/contexts/AppContext';
 import { Header } from '@/app/components/Header';
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { VendorDeliveryIssues } from './VendorDeliveryIssues';
+import { isValidPhone } from '@/app/utils/validation';
 
 function MetricCard({ label, value, icon: Icon, colorClass }: { label: string; value: string | number; icon: any; colorClass: string }) {
   return (
@@ -91,7 +92,7 @@ export function VendorInterface() {
   const navigate = useNavigate();
   const { products, addProduct, removeProduct, updateProduct, orders, refreshOrders, currentUser, authLoading, logout, setCurrentUser, vendors, courierProfiles, users, updateOrderStatus, updateVendor, updateUser } = useApp();
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (authLoading) return;
     if (!currentUser || (currentUser.role !== 'VENDOR' && currentUser.role !== 'vendor')) navigate('/auth');
   }, [currentUser, authLoading, navigate]);
@@ -150,7 +151,7 @@ export function VendorInterface() {
   const handleAddProduct = async () => {
     if (!productForm.name.trim() || !productForm.price) { toast.error('Name and price are required'); return; }
     try {
-      await addProduct({ id: `P${Date.now()}`, vendorId, vendorName: vendor?.name || 'My Shop', name: productForm.name, category: productForm.category, price: productForm.price, description: productForm.description, image: productForm.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400', inStock: productForm.stock > 0 });
+      await addProduct({ id: `P${Date.now()}`, vendorId, vendorName: vendor?.name || 'My Shop', name: productForm.name, category: productForm.category, price: productForm.price, description: productForm.description, image: productForm.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400', inStock: productForm.stock > 0, stockQuantity: productForm.stock });
       toast.success('Product added!');
       setShowProductDialog(false);
       setProductForm({ name: '', category: 'Food', price: 0, description: '', image: '', stock: 10 });
@@ -162,7 +163,7 @@ export function VendorInterface() {
   const handleUpdateProduct = async () => {
     if (!editingProduct) return;
     try {
-      await updateProduct(editingProduct.id, { name: productForm.name, category: productForm.category, price: productForm.price, description: productForm.description, image: productForm.image || editingProduct.image, inStock: productForm.stock > 0 });
+      await updateProduct(editingProduct.id, { name: productForm.name, category: productForm.category, price: productForm.price, description: productForm.description, image: productForm.image || editingProduct.image, stockQuantity: productForm.stock });
       toast.success('Product updated!');
       setEditingProduct(null);
     } catch (err) {
@@ -171,7 +172,7 @@ export function VendorInterface() {
   };
 
   const openEdit = (p: Product) => {
-    setProductForm({ name: p.name, category: p.category, price: p.price, description: p.description, image: p.image, stock: p.inStock ? 10 : 0 });
+    setProductForm({ name: p.name, category: p.category, price: p.price, description: p.description, image: p.image, stock: p.stockQuantity });
     setEditingProduct(p);
   };
 
@@ -322,13 +323,20 @@ export function VendorInterface() {
                       <div key={p.id} className="bg-white dark:bg-[#0F1E3A] rounded-2xl border border-blue-100 dark:border-blue-900/30 shadow-sm overflow-hidden group hover:-translate-y-0.5 hover:shadow-md transition-all">
                         <div className="relative">
                           <img src={getImageUrl(p.image)} alt={p.name} className="w-full h-28 object-cover" />
-                          <span className={`absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${p.inStock ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
-                            {p.inStock ? 'In Stock' : 'Out'}
+                          <span className={`absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${p.stockQuantity > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
+                            {p.stockQuantity > 0 ? `Stock: ${p.stockQuantity}` : 'Out'}
                           </span>
                         </div>
                         <div className="p-3">
                           <h4 className="font-bold text-[#0F172A] dark:text-white text-xs line-clamp-1 mb-0.5">{p.name}</h4>
-                          <p className="text-slate-400 text-[10px] mb-2">{p.category}</p>
+                          <p className="text-slate-400 text-[10px] mb-1">{p.category}</p>
+                          {p.rating ? (
+                            <div className="flex items-center gap-1 mb-1.5">
+                              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{p.rating.toFixed(1)}</span>
+                              <span className="text-[10px] text-slate-400">({p.totalReviews})</span>
+                            </div>
+                          ) : <div className="h-4 mb-1.5" />}
                           <p className="font-extrabold text-[#1E3A8A] dark:text-blue-300 text-sm mb-3">₹{p.price}</p>
                           <div className="flex gap-1.5">
                             <button onClick={() => openEdit(p)} className="flex-1 h-7 bg-blue-50 dark:bg-blue-900/20 text-[#1E3A8A] dark:text-blue-400 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-blue-100 transition-colors">
@@ -396,15 +404,32 @@ export function VendorInterface() {
                     return (
                       <div key={f.field} className="space-y-1">
                         <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" />{f.label}</Label>
-                        <Input type={f.type} placeholder={f.ph} value={(settingsData as any)[f.field]}
-                          onChange={e => setSettingsData({ ...settingsData, [f.field]: e.target.value })}
+                        <Input 
+                          type={f.type} 
+                          placeholder={f.ph} 
+                          value={(settingsData as any)[f.field]}
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (f.field === 'phone') {
+                              val = val.replace(/\D/g, '').slice(0, 10);
+                            }
+                            setSettingsData({ ...settingsData, [f.field]: val });
+                          }}
                           disabled={f.field === 'email'}
-                          className="h-11 bg-[#F0F4FF] dark:bg-[#0A1628] border-blue-100 dark:border-blue-900/30 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed" />
+                          className={`h-11 bg-[#F0F4FF] dark:bg-[#0A1628] border-blue-100 dark:border-blue-900/30 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed ${
+                            f.field === 'phone' && settingsData.phone && !isValidPhone(settingsData.phone) ? 'border-red-500 focus:border-red-500' : ''
+                          }`} 
+                        />
+                        {f.field === 'phone' && settingsData.phone && !isValidPhone(settingsData.phone) && (
+                          <p className="text-[10px] text-red-500 mt-1 pl-1 font-semibold">
+                            Phone number must be exactly 10 digits
+                          </p>
+                        )}
                       </div>
                     );
                   })}
                   <div className="flex gap-3 pt-2">
-                    <button onClick={handleSaveSettings} disabled={isSavingSettings} className="flex-1 h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white font-bold rounded-xl transition-all active:scale-95 text-sm disabled:opacity-70 disabled:cursor-not-allowed">
+                    <button onClick={handleSaveSettings} disabled={isSavingSettings || !isValidPhone(settingsData.phone)} className="flex-1 h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white font-bold rounded-xl transition-all active:scale-95 text-sm disabled:opacity-70 disabled:cursor-not-allowed">
                       {isSavingSettings ? 'Saving...' : 'Save Changes'}
                     </button>
                     <button onClick={() => { logout(); navigate('/auth'); }} className="flex-1 h-11 border-2 border-red-200 dark:border-red-900/30 text-red-500 font-bold rounded-xl hover:bg-red-50 transition-colors text-sm">Logout</button>
