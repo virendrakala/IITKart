@@ -436,7 +436,14 @@ export function CourierInterface() {
                   <SelectValue placeholder="Select issue type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {['Customer not available', 'Wrong address', 'Item damaged', 'Safety concern', 'Other'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  {[
+                    { label: 'Customer Unavailable', value: 'customer_unavailable' },
+                    { label: 'Wrong Address', value: 'address_incorrect' },
+                    { label: 'Item Damaged', value: 'item_damaged' },
+                    { label: 'Accident', value: 'accident' },
+                    { label: 'Vehicle Breakdown', value: 'vehicle_breakdown' },
+                    { label: 'Other', value: 'other' }
+                  ].map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -462,7 +469,7 @@ export function CourierInterface() {
                 try {
                   await api.post('/riders/issues', { 
                     orderId: issueDialog.orderId,
-                    issueType: issueType.toLowerCase().replace(/ /g, '_'), 
+                    issueType: issueType, 
                     description: issueDescription 
                   });
                   toast.success('Issue reported successfully!');
