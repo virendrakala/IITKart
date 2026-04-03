@@ -7,7 +7,7 @@ const router = Router();
 router.use(verifyToken);
 
 router.post('/create-razorpay-order', paymentController.createRazorpayOrder);
-router.post('/verify', paymentController.verifyPayment);
+router.post('/verify-payment', paymentController.verifyPayment);
 router.get('/history', paymentController.getPaymentHistory);
 router.get('/:orderId/receipt', paymentController.getReceipt);
 

@@ -14,16 +14,25 @@ export const getProfile = async (req: AuthRequest, res: Response, next: NextFunc
 
 export const updateProfile = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, phone, address } = req.body;
+    const { name, email, phone, address } = req.body;
     let photo = req.user.photo;
-    
+
+    // Validate email if provided and different from current
+    if (email && email !== req.user.email) {
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) return next(new AppError('Email already in use', 400));
+    }
+
     if (req.file) {
       photo = `/uploads/${req.file.filename}`;
     }
 
+    const updatedData: any = { name, phone, address, photo };
+    if (email) updatedData.email = email;
+
     const updatedUser = await prisma.user.update({
       where: { id: req.user.id },
-      data: { name, phone, address, photo }
+      data: updatedData
     });
 
     res.status(200).json({ success: true, data: sanitizeUser(updatedUser) });

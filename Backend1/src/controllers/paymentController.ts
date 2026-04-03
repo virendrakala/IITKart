@@ -3,26 +3,35 @@ import { paymentService } from '../services/paymentService';
 import prisma from '../config/db';
 import { AppError } from '../utils/AppError';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { env } from '../config/env';
 
 export const createRazorpayOrder = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { amount, currency, orderId } = req.body;
-    
-    // Check if order belongs to user
+
+    // Validate amount
+    if (!amount || amount <= 0) {
+      return next(new AppError('Valid amount is required', 400));
+    }
+
+    // Check if order exists and belongs to user
     const dbOrder = await prisma.order.findUnique({ where: { id: orderId } });
-    if (!dbOrder || dbOrder.userId !== req.user.id) {
-      return next(new AppError('Invalid order', 400));
+    if (!dbOrder) {
+      return next(new AppError('Order not found', 404));
+    }
+    if (dbOrder.userId !== req.user.id) {
+      return next(new AppError('Unauthorized: Order does not belong to user', 403));
     }
 
     const order = await paymentService.createRazorpayOrder(amount, currency);
-    
+
     res.status(200).json({
       success: true,
       data: {
         razorpayOrderId: order.id,
         amount,
         currency,
-        key: process.env.RAZORPAY_KEY_ID
+        key: env.RAZORPAY_KEY_ID
       }
     });
   } catch (error) { next(error); }
@@ -32,8 +41,16 @@ export const verifyPayment = async (req: AuthRequest, res: Response, next: NextF
   try {
     const { razorpayPaymentId, razorpayOrderId, razorpaySignature, orderId, method } = req.body;
 
+    // Verify signature first
     const isValid = paymentService.verifyRazorpaySignature(razorpayPaymentId, razorpayOrderId, razorpaySignature);
-    if (!isValid) return next(new AppError('Invalid signature', 400));
+    if (!isValid) return next(new AppError('Invalid payment signature', 400));
+
+    // Check if order exists and belongs to user
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) return next(new AppError('Order not found', 404));
+    if (order.userId !== req.user.id) {
+      return next(new AppError('Unauthorized: Order does not belong to user', 403));
+    }
 
     await prisma.payment.updateMany({
       where: { orderId },
@@ -51,7 +68,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response, next: NextF
       data: { paymentStatus: 'success' }
     });
 
-    res.status(200).json({ success: true, message: 'Payment verified' });
+    res.status(200).json({ success: true, message: 'Payment verified successfully' });
   } catch (error) { next(error); }
 };
 

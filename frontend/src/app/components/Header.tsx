@@ -43,7 +43,10 @@ export function Header({ children }: HeaderProps) {
           {/* Logo */}
           <div
             className="flex items-center gap-3 cursor-pointer group"
-            onClick={() => navigate('/')}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate('/');
+            }}
           >
             <div className="relative">
               <img

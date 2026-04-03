@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
@@ -24,26 +25,26 @@ async function main() {
 
   // 1. Create Users
   const rahul = await prisma.user.create({
-    data: { name: 'Rahul Kumar', email: 'rahul@iitk.ac.in', passwordHash, role: 'user', kartCoins: 150, address: 'Hall 2, Room 201', phone: '9876543210' }
+    data: { name: 'Rahul Kumar', email: 'rahul@iitk.ac.in', passwordHash, role: 'user', kartCoins: 150, address: 'Hall 2, Room 201', phone: '9876543210', isVerified: true }
   });
   const priya = await prisma.user.create({
-    data: { name: 'Priya Singh', email: 'priya@iitk.ac.in', passwordHash, role: 'user', kartCoins: 220, address: 'Hall 5, Room 105', phone: '9876543211' }
+    data: { name: 'Priya Singh', email: 'priya@iitk.ac.in', passwordHash, role: 'user', kartCoins: 220, address: 'Hall 5, Room 105', phone: '9876543211', isVerified: true }
   });
   const amit = await prisma.user.create({
-    data: { name: 'Amit Sharma', email: 'amit@iitk.ac.in', passwordHash, role: 'user', kartCoins: 80, address: 'Hall 3, Room 302', phone: '9876543212' }
+    data: { name: 'Amit Sharma', email: 'amit@iitk.ac.in', passwordHash, role: 'user', kartCoins: 80, address: 'Hall 3, Room 302', phone: '9876543212', isVerified: true }
   });
   const neha = await prisma.user.create({
-    data: { name: 'Neha Gupta', email: 'neha@iitk.ac.in', passwordHash, role: 'user', kartCoins: 340, address: 'Hall 7, Room 410', phone: '9876543213' }
+    data: { name: 'Neha Gupta', email: 'neha@iitk.ac.in', passwordHash, role: 'user', kartCoins: 340, address: 'Hall 7, Room 410', phone: '9876543213', isVerified: true }
   });
 
   // Admin
   await prisma.user.create({
-    data: { name: 'Admin', email: 'admin@iitk.ac.in', passwordHash, role: 'admin' }
+    data: { name: 'Admin', email: 'admin@iitk.ac.in', passwordHash, role: 'admin', isVerified: true }
   });
 
   // Super Admin
   await prisma.user.create({
-    data: { name: 'Super Admin', email: 'superadmin@iitk.ac.in', passwordHash, role: 'admin' }
+    data: { name: 'Super Admin', email: 'superadmin@iitk.ac.in', passwordHash, role: 'admin', isVerified: true }
   });
 
   // 2. Create Vendors and linked Users
@@ -59,7 +60,7 @@ async function main() {
   const vendorRecords = [];
   for (const v of vendorsData) {
     const user = await prisma.user.create({
-      data: { name: v.name + ' Owner', email: v.email, passwordHash, role: 'vendor', phone: '9000000000' }
+      data: { name: v.name + ' Owner', email: v.email, passwordHash, role: 'vendor', phone: '9000000000', isVerified: true }
     });
     const vendor = await prisma.vendor.create({
       data: { userId: user.id, name: v.name, email: v.email, rating: 4.5, totalOrders: 100, totalEarnings: 50000, location: v.location, availability: '9 AM - 9 PM' }
@@ -76,7 +77,7 @@ async function main() {
   const courierRecords = [];
   for (const c of couriersData) {
     const user = await prisma.user.create({
-      data: { name: c.name, email: c.email, passwordHash, role: 'courier', phone: '8000000000' }
+      data: { name: c.name, email: c.email, passwordHash, role: 'courier', phone: '8000000000', isVerified: true }
     });
     const profile = await prisma.courierProfile.create({
       data: { userId: user.id, totalDeliveries: c.totalDeliveries, totalEarnings: c.totalDeliveries * 30, experience: '1 year', availability: 'Evening' }
