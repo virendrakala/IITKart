@@ -205,6 +205,7 @@ interface AppContextType {
   users: User[];
   updateUser: (userId: string, updates: Partial<User>) => void;
   addUser: (user: User) => void;
+  toggleFavorite: (productId: string) => Promise<void>;
   
   complaints: Complaint[];
   addComplaint: (complaint: Complaint) => void;
@@ -424,6 +425,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   React.useEffect(() => {
     let intervalId: any;
 
+    const fetchVendors = () => {
+      api.get('/vendors')
+        .then(res => {
+          const fetchedVendors = res.data.data.map((v: any) => ({
+            ...v,
+            products: []
+          }));
+          setVendors(fetchedVendors);
+        })
+        .catch(err => console.error("Failed to sync vendors:", err));
+    };
+
     const fetchOrders = () => {
       if (!currentUser) return;
       if (currentUser.role === 'CUSTOMER' || currentUser.role === 'user') {
@@ -441,9 +454,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (currentUser.role === 'CUSTOMER' || currentUser.role === 'user') {
         api.get('/users/complaints').then(res => setComplaints(res.data.data));
       }
+      fetchVendors();
       fetchOrders();
       refreshProducts();
       intervalId = setInterval(() => {
+        fetchVendors();
         fetchOrders();
         refreshProducts();
       }, 3000); // Poll every 3 seconds for instant updates
@@ -661,6 +676,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error(err);
       throw err;
+    }
+  };
+
+  const toggleFavorite = async (productId: string) => {
+    try {
+      const res = await api.post(`/users/favorites/${productId}`);
+      const { favorites } = res.data.data;
+      setCurrentUser(prev => prev ? { ...prev, favorites } : null);
+    } catch (error) {
+      console.error("Failed to toggle favorite:", error);
     }
   };
 
@@ -931,6 +956,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         users,
         updateUser,
         addUser,
+        toggleFavorite,
         complaints,
         addComplaint,
         updateComplaint,
