@@ -156,6 +156,16 @@ export function CourierInterface() {
     }
   };
 
+  const handleConfirmPickup = async (orderId: string) => {
+    try {
+      await api.patch(`/riders/deliveries/${orderId}/pickup`);
+      toast.success('Pickup confirmed! Package is with you. Head to delivery location 📦');
+      fetchAllData();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to confirm pickup');
+    }
+  };
+
   const handleMarkDelivered = async (orderId: string) => {
     try {
       await api.patch(`/riders/deliveries/${orderId}/delivered`);
@@ -273,7 +283,9 @@ export function CourierInterface() {
                     {/* Live banner */}
                     <div className="bg-gradient-to-r from-[#7C3AED] to-[#6D28D9] px-4 py-2.5 flex items-center gap-2">
                       <span className="w-2 h-2 bg-white rounded-full animate-ping" />
-                      <span className="text-white text-xs font-bold">In Progress — Out for delivery</span>
+                      <span className="text-white text-xs font-bold">
+                        {order.status === 'accepted' ? 'Assigned — Head to vendor' : 'In Progress — Out for delivery'}
+                      </span>
                     </div>
                     <div className="p-5 space-y-4">
                       <div className="flex items-start justify-between">
@@ -295,17 +307,33 @@ export function CourierInterface() {
                         </div>
                       </div>
 
-                      {/* ✅ COURIER marks as delivered */}
-                      <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 border border-purple-100 dark:border-purple-800/30">
-                        <p className="text-sm font-semibold text-purple-700 dark:text-purple-300 mb-1">Once you've handed over the package:</p>
-                        <p className="text-xs text-purple-500 dark:text-purple-400 mb-3">Tap below to confirm delivery and receive your earnings.</p>
-                        <button
-                          onClick={() => handleMarkDelivered(order.id)}
-                          className="w-full h-11 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm transition-all shadow-md shadow-emerald-500/25 active:scale-95 flex items-center justify-center gap-2"
-                        >
-                          <CheckCircle className="w-4 h-4" /> Mark as Delivered
-                        </button>
-                      </div>
+                      {/* Show CONFIRM PICKUP if order is still in 'accepted' state */}
+                      {order.status === 'accepted' && (
+                        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-100 dark:border-blue-800/30">
+                          <p className="text-sm font-semibold text-blue-700 dark:text-blue-300 mb-1">You're at the vendor location:</p>
+                          <p className="text-xs text-blue-500 dark:text-blue-400 mb-3">Tap below once you've picked up the package.</p>
+                          <button
+                            onClick={() => handleConfirmPickup(order.id)}
+                            className="w-full h-11 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl text-sm transition-all shadow-md shadow-blue-500/25 active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <Package className="w-4 h-4" /> Confirm Pickup
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Show MARK AS DELIVERED if order is in 'picked' state */}
+                      {order.status === 'picked' && (
+                        <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 border border-purple-100 dark:border-purple-800/30">
+                          <p className="text-sm font-semibold text-purple-700 dark:text-purple-300 mb-1">Once you've handed over the package:</p>
+                          <p className="text-xs text-purple-500 dark:text-purple-400 mb-3">Tap below to confirm delivery and receive your earnings.</p>
+                          <button
+                            onClick={() => handleMarkDelivered(order.id)}
+                            className="w-full h-11 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm transition-all shadow-md shadow-emerald-500/25 active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <CheckCircle className="w-4 h-4" /> Mark as Delivered
+                          </button>
+                        </div>
+                      )}
 
                       <button onClick={() => setIssueDialog({ open: true, orderId: order.id })}
                         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/30 text-amber-600 text-xs font-bold hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors">

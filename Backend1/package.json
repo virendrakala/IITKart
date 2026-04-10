@@ -10,10 +10,24 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "ts-node prisma/seed.ts",
     "db:studio": "prisma studio",
-    "test": "jest --coverage"
+    "test": "jest --coverage",
+    "test:with-dev": "bash scripts/test-with-dev.sh",
+    "test:integration": "jest tests/integration-all-issues.test.ts --coverage",
+    "test:integration:with-dev": "bash scripts/test-with-dev.sh integration",
+    "test:queue": "jest tests/queue-persistence.test.ts --coverage",
+    "test:payment": "jest tests/payment-edge-cases.test.ts --coverage",
+    "test:concurrent": "jest tests/concurrent-resilience.test.ts --coverage",
+    "test:delivery": "jest tests/delivery-rider.test.ts --coverage",
+    "test:stress": "ts-node tests/stress-test.ts",
+    "test:stress:with-dev": "bash scripts/test-with-dev.sh stress",
+    "test:frontend": "jest tests/ui-issues.test.ts --coverage",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage --coverageReporters=lcov --coverageDirectory=coverage",
+    "test:all-with-dev": "bash scripts/test-with-dev.sh"
   },
   "dependencies": {
     "@prisma/client": "^5.x",
+    "axios": "^1.x",
     "bcryptjs": "^2.x",
     "compression": "^1.x",
     "cors": "^2.x",
@@ -31,6 +45,8 @@
     "zod": "^3.x"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/bcryptjs": "^2.x",
     "@types/compression": "^1.x",
     "@types/cors": "^2.x",
@@ -46,6 +62,7 @@
     "jest": "^29.x",
     "prisma": "^5.x",
     "supertest": "^6.x",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.x",
     "ts-node-dev": "^2.x",
     "typescript": "^5.x"

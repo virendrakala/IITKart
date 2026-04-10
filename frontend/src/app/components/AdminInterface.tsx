@@ -208,7 +208,6 @@ export function AdminInterface() {
               <MetricCard label="Riders"        value={metrics.activeRiders}                   icon={Truck}       colorClass="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400" />
               <MetricCard label="Success Rate"  value={`${metrics.successRate}%`}              icon={CheckCircle} colorClass="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400" />
               <MetricCard label="Complaints"    value={metrics.pendingComplaints}              icon={MessageSquare} colorClass="bg-red-100 dark:bg-red-900/30 text-red-500 dark:text-red-400" />
-              <MetricCard label="Complaints"    value={metrics.pendingComplaints}              icon={MessageSquare} colorClass="bg-red-100 dark:bg-red-900/30 text-red-500 dark:text-red-400" />
             </div>
 
             {/* ── DASHBOARD ── */}
@@ -387,15 +386,15 @@ export function AdminInterface() {
                   {filteredVendors.map(vendor => (
                     <div key={vendor.id} className="bg-white dark:bg-[#0F1E3A] rounded-2xl border border-blue-100 dark:border-blue-900/30 p-5 shadow-sm">
                       <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h3 className="font-bold text-[#0F172A] dark:text-white" style={{ fontFamily: 'Syne, sans-serif' }}>{vendor.name}</h3>
-                          <p className="text-xs text-slate-400 mt-0.5">{vendor.location}</p>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-[#0F172A] dark:text-white truncate" style={{ fontFamily: 'Syne, sans-serif' }}>{vendor.name}</h3>
+                          <p className="text-xs text-slate-400 mt-0.5 truncate">{vendor.location}</p>
                         </div>
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${vendor.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>{vendor.status}</span>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex-shrink-0 ml-2 ${vendor.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>{vendor.status}</span>
                       </div>
                       <div className="grid grid-cols-3 gap-2 mb-4">
                         {[
-                          { label: 'Rating', value: vendor.rating },
+                          { label: 'Rating', value: typeof vendor.rating === 'number' ? vendor.rating.toFixed(1) : vendor.rating },
                           { label: 'Orders', value: vendor.totalOrders || 0 },
                           { label: 'Earned', value: `₹${(vendor.totalEarnings || 0).toFixed(0)}` },
                         ].map(s => (

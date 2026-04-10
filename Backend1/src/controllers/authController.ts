@@ -111,6 +111,11 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
     
     if (!user) return next(new AppError('User not found', 404));
 
+    // Issue #83: Check if user is banned
+    if (user.status === 'banned') {
+      return next(new AppError('Your account has been restricted. You cannot reset your password.', 403));
+    }
+
     const otp = authService.generateOTP();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
 

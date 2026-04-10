@@ -89,6 +89,18 @@ export const addProduct = async (req: any, res: Response, next: NextFunction) =>
       return next(new AppError('Invalid category', 400));
     }
 
+    // Issue #87: Check for duplicate product names
+    const existingProduct = await prisma.product.findFirst({
+      where: {
+        vendorId: vendor!.id,
+        name: name.trim()
+      }
+    });
+    
+    if (existingProduct) {
+      return next(new AppError(`A product with the name '${name}' already exists in your menu`, 400));
+    }
+
     const stockQuantity = req.body.stock !== undefined ? Number(req.body.stock) : (req.body.stockQuantity !== undefined ? Number(req.body.stockQuantity) : 0);
     inStock = stockQuantity > 0;
 
@@ -154,7 +166,14 @@ export const getVendorOrders = async (req: AuthRequest, res: Response, next: Nex
   try {
     const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
     const orders = await prisma.order.findMany({
-      where: { vendorId: vendor!.id },
+      where: { 
+        vendorId: vendor!.id,
+        // Issue #91: Only show orders where payment is either COD or successfully completed online
+        OR: [
+          { paymentMethod: 'Cash on Delivery' },
+          { paymentStatus: 'success' }
+        ]
+      },
       orderBy: { createdAt: 'desc' },
       include: { 
         items: { include: { product: true } }, 
@@ -169,9 +188,20 @@ export const getVendorOrders = async (req: AuthRequest, res: Response, next: Nex
 export const acceptOrder = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
-    const order = await prisma.order.findFirst({ where: { id: req.params.orderId, vendorId: vendor!.id, status: 'pending' } });
+    const order = await prisma.order.findFirst({ 
+      where: { 
+        id: req.params.orderId, 
+        vendorId: vendor!.id, 
+        status: 'pending',
+        // Issue #91: Only accept orders where payment is either COD or successfully completed online
+        OR: [
+          { paymentMethod: 'Cash on Delivery' },
+          { paymentStatus: 'success' }
+        ]
+      } 
+    });
     
-    if (!order) return next(new AppError('Order not found or not pending', 404));
+    if (!order) return next(new AppError('Order not found, not pending, or payment failed. Cannot accept unpaid online orders.', 404));
 
     const updated = await prisma.order.update({
       where: { id: order.id },

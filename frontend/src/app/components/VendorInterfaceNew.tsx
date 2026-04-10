@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { VendorDeliveryIssues } from './VendorDeliveryIssues';
-import { isValidPhone } from '@/app/utils/validation';
+import { isValidPhone, isValidEmail, isValidTextInput } from '@/app/utils/validation';
 
 function MetricCard({ label, value, icon: Icon, colorClass }: { label: string; value: string | number; icon: any; colorClass: string }) {
   return (
@@ -48,8 +48,19 @@ function ProductFormFields({ productForm, setProductForm, onSubmit, label }: { p
       ].map(({ f, l, t, ph }) => (
         <div key={f} className="space-y-1">
           <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">{l}</Label>
-          <Input type={t} placeholder={ph} value={productForm[f]}
-            onChange={e => setProductForm({ ...productForm, [f]: t === 'number' ? Number(e.target.value) : e.target.value })}
+          <Input 
+            type={t} 
+            placeholder={ph} 
+            value={t === 'number' ? (productForm[f] === 0 ? '' : productForm[f]) : productForm[f]}
+            // Issue #80: Handle numeric input properly - clear on initial state, allow proper replacement
+            onChange={e => {
+              if (t === 'number') {
+                const numValue = e.target.value === '' ? 0 : Number(e.target.value);
+                setProductForm({ ...productForm, [f]: isNaN(numValue) ? 0 : numValue });
+              } else {
+                setProductForm({ ...productForm, [f]: e.target.value });
+              }
+            }}
             className="h-10 bg-[#F0F4FF] dark:bg-[#0A1628] border-blue-100 dark:border-blue-900/30 rounded-xl" />
         </div>
       ))}
@@ -126,6 +137,25 @@ export function VendorInterface() {
 
   const handleSaveSettings = async () => {
     if (!vendor || !currentUser) return;
+    
+    // Issue #86: Validate Shop Name and Location before saving
+    if (!isValidTextInput(settingsData.name)) {
+      toast.error('Please enter a valid shop name (must contain letters or numbers)');
+      return;
+    }
+    if (!isValidTextInput(settingsData.address)) {
+      toast.error('Please enter a valid location (must contain letters or numbers)');
+      return;
+    }
+    if (!isValidPhone(settingsData.phone)) {
+      toast.error('Please enter a valid 10-digit phone number');
+      return;
+    }
+    if (!isValidEmail(settingsData.email)) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    
     setIsSavingSettings(true);
     try {
       await updateVendor(vendor.id, {
@@ -186,7 +216,7 @@ export function VendorInterface() {
               <p className="font-bold text-[#0F172A] dark:text-white text-sm truncate">{vendor?.name || 'My Shop'}</p>
               <div className="flex items-center gap-1 mt-0.5">
                 <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                <span className="text-xs text-slate-400">{vendor?.rating} · {vendor?.status}</span>
+                <span className="text-xs text-slate-400">{typeof vendor?.rating === 'number' ? vendor.rating.toFixed(1) : vendor?.rating} · {vendor?.status}</span>
               </div>
             </div>
           }
@@ -226,7 +256,13 @@ export function VendorInterface() {
                             <p className="font-bold text-[#0F172A] dark:text-white text-sm font-mono">#{order.id}</p>
                             <p className="text-xs text-slate-400">{new Date(order.createdAt || order.date).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</p>
                           </div>
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${order.status === 'picked' ? 'bg-blue-100 text-blue-700' : order.status === 'accepted' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{order.status}</span>
+                          <div className="flex gap-2">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${order.status === 'picked' ? 'bg-blue-100 text-blue-700' : order.status === 'accepted' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{order.status}</span>
+                            {/* Issue #93: Show payment method badge */}
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${order.paymentMethod === 'Cash on Delivery' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              {order.paymentMethod === 'Cash on Delivery' ? 'COD' : 'Paid Online'}
+                            </span>
+                          </div>
                         </div>
                         <p className="text-sm font-semibold text-[#1E3A8A] dark:text-blue-300 mb-1">{(order.items || order.products || []).length} items · ₹{order.total + 30}</p>
                         
@@ -429,7 +465,7 @@ export function VendorInterface() {
                     );
                   })}
                   <div className="flex gap-3 pt-2">
-                    <button onClick={handleSaveSettings} disabled={isSavingSettings || !isValidPhone(settingsData.phone)} className="flex-1 h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white font-bold rounded-xl transition-all active:scale-95 text-sm disabled:opacity-70 disabled:cursor-not-allowed">
+                    <button onClick={handleSaveSettings} disabled={isSavingSettings || !isValidPhone(settingsData.phone) || !isValidTextInput(settingsData.name) || !isValidTextInput(settingsData.address) || !isValidEmail(settingsData.email)} className="flex-1 h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white font-bold rounded-xl transition-all active:scale-95 text-sm disabled:opacity-70 disabled:cursor-not-allowed">
                       {isSavingSettings ? 'Saving...' : 'Save Changes'}
                     </button>
                     <button onClick={() => { logout(); navigate('/auth'); }} className="flex-1 h-11 border-2 border-red-200 dark:border-red-900/30 text-red-500 font-bold rounded-xl hover:bg-red-50 transition-colors text-sm">Logout</button>

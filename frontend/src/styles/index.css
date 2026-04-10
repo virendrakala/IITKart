@@ -1,3 +1,31 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+/* Razorpay Payment Modal Z-Index Fix (Issue #96) */
+/* Ensure Razorpay iframe is fully interactive and appears above all other elements */
+
+/* Razorpay container and overlay */
+.rzp-container {
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+}
+
+.rzp-overlay {
+  z-index: 9998 !important;
+  pointer-events: auto !important;
+}
+
+/* Razorpay iframe elements */
+iframe[src*="razorpay"],
+iframe[class*="razorpay"] {
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+}
+
+/* Ensure dialog overlay doesn't block Razorpay when it's actively processing */
+/* The overlay should never block pointer events during payment processing */
+.dialog-overlay-hidden {
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
