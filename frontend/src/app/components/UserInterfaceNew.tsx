@@ -299,48 +299,6 @@ export function UserInterface() {
     setComplaintDialog({ open: false, orderId: '' }); setComplaintSubject(''); setComplaintDescription('');
   };
 
-  // Issue #95: Cancel order functionality
-  const updateOrderStatus = async (orderId: string, newStatus: string) => {
-    if (newStatus !== 'cancelled') {
-      toast.error('Only order cancellation is allowed');
-      return;
-    }
-
-    setCancellingOrderId(orderId);
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('Please login first');
-        return;
-      }
-
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-      const response = await fetch(`${apiUrl}/orders/${orderId}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status: newStatus })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        toast.error(error.message || 'Failed to cancel order');
-        return;
-      }
-
-      const { data: updatedOrder } = await response.json();
-      updateOrder(orderId, updatedOrder);
-      toast.success('Order cancelled successfully! Stock has been reverted.');
-    } catch (error) {
-      console.error('Error updating order status:', error);
-      toast.error('Failed to cancel order. Please try again.');
-    } finally {
-      setCancellingOrderId(null);
-    }
-  };
-
   const generateReceipt = (order: any) => {
     const vendor = vendors.find(v => v.id === order.vendorId);
     const total = order.total + 30;
@@ -595,7 +553,17 @@ export function UserInterface() {
                             {order.status === 'delivered' && '✨ Order delivered! Hope you enjoyed your purchase'}
                           </div>
                           {order.status === 'pending' && (
-                            <button onClick={() => updateOrderStatus(order.id, 'cancelled')} disabled={cancellingOrderId === order.id} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition-all shadow shadow-red-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
+                            <button onClick={async () => {
+                              setCancellingOrderId(order.id);
+                              try {
+                                await updateOrderStatus(order.id, 'cancelled');
+                                toast.success('Order cancelled successfully! Stock has been reverted.');
+                              } catch (error) {
+                                toast.error('Failed to cancel order. Please try again.');
+                              } finally {
+                                setCancellingOrderId(null);
+                              }
+                            }} disabled={cancellingOrderId === order.id} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition-all shadow shadow-red-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
                               {cancellingOrderId === order.id ? (
                                 <>
                                   <Loader className="w-3 h-3 animate-spin" />
@@ -881,7 +849,6 @@ export function UserInterface() {
                             });
                             if (res?.data?.data) {
                               photoRef = res.data.data.photo;
-                              toast.success('Settings & Photo saved!');
                             }
                           }
 
@@ -893,27 +860,13 @@ export function UserInterface() {
                             address: settingsData.address,
                             photo: photoRef
                           });
-                          if (res?.data?.data) {
-                            photoRef = res.data.data.photo;
-                            toast.success('Settings & Photo saved!');
-                          }
+                          
+                          // Clear photoFile after save
+                          setSettingsData(prev => ({ ...prev, photoFile: undefined } as any));
+                          toast.success('Settings saved!');
+                        } catch (e) {
+                          toast.error('Failed to save settings');
                         }
-
-                        // Update all user data
-                        updateUser(currentUser.id, {
-                          name: settingsData.name,
-                          email: settingsData.email,
-                          phone: settingsData.phone,
-                          address: settingsData.address,
-                          photo: photoRef
-                        });
-
-                        // Clear photoFile after save
-                        setSettingsData(prev => ({ ...prev, photoFile: undefined } as any));
-                        toast.success('Settings saved!');
-                      } catch (e) {
-                        toast.error('Failed to save settings');
-                      }
                     }}
                       disabled={!isValidPhone(settingsData.phone)}
                       className="flex-1 h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-md active:scale-95 text-sm">Save Changes</button>
