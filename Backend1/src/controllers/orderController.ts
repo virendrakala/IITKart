@@ -3,6 +3,122 @@ import prisma from '../config/db';
 import { AppError } from '../utils/AppError';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import { orderService } from '../services/orderService';
+import { checkoutQueue } from '../services/queueService';
+
+/**
+ * Process a single checkout operation
+ * This is the actual checkout logic that gets queued
+ */
+const processCheckout = async (
+  userId: string,
+  vendorId: string,
+  items: any[],
+  deliveryAddress: string,
+  paymentMethod: string,
+  useKartCoins: boolean
+): Promise<any> => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AppError('User not found', 404);
+
+  const KART_COIN_THRESHOLD = 30;
+  if (useKartCoins && user.kartCoins < KART_COIN_THRESHOLD) {
+    throw new AppError('Not enough Kart Coins for free delivery', 400);
+  }
+
+  const validatedVendorId = await orderService.validateSingleVendorCart(items);
+  if (validatedVendorId !== vendorId) throw new AppError('Vendor mismatch', 400);
+
+  const productIds = items.map((i: any) => i.productId);
+  const products: any[] = await prisma.product.findMany({ where: { id: { in: productIds } } });
+
+  // Pre-Order stock validation
+  for (const item of items) {
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      throw new AppError(`Invalid quantity for product ${item.productId}`, 400);
+    }
+    const product = (products as any[]).find((p: any) => p.id === item.productId);
+    if (!product) throw new AppError(`Product not found: ${item.productId}`, 404);
+    if (Number(product.stockQuantity) < Number(item.quantity)) {
+      throw new AppError(`Insufficient stock available for ${product.name}`, 400);
+    }
+  }
+
+  let total = 0;
+  const orderItemsData = items.map((item: any) => {
+    const product = products.find(p => p.id === item.productId)!;
+    total += product.price * item.quantity;
+    return {
+      productId: item.productId,
+      quantity: item.quantity,
+      price: product.price
+    };
+  });
+
+  const kartCoinsEarned = orderService.calculateKartCoins(total);
+  const kartCoinsUsed = useKartCoins ? KART_COIN_THRESHOLD : 0;
+
+  const order = await prisma.$transaction(async (tx: any) => {
+    // Atomic Stock Decrement
+    for (const item of items) {
+      const product = await tx.product.findUnique({
+        where: { id: item.productId },
+        select: { stockQuantity: true, name: true }
+      });
+      
+      if (!product || product.stockQuantity < item.quantity) {
+        throw new AppError(`Stock sold out during checkout for ${product?.name || 'product'}`, 400);
+      }
+
+      await tx.product.update({
+        where: { id: item.productId },
+        data: {
+          stockQuantity: { decrement: item.quantity },
+          inStock: product.stockQuantity - item.quantity > 0
+        }
+      });
+    }
+
+    const newOrder = await tx.order.create({
+      data: {
+        userId,
+        vendorId,
+        total,
+        deliveryAddress: deliveryAddress.trim(),
+        paymentMethod,
+        kartCoinsEarned,
+        kartCoinsUsed,
+        items: {
+          create: orderItemsData
+        }
+      },
+      include: { items: true }
+    });
+
+    // Issue #90: Deduct Kart Coins from user balance if coins are used
+    if (useKartCoins && kartCoinsUsed > 0) {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          kartCoins: { decrement: kartCoinsUsed }
+        }
+      });
+    }
+
+    await tx.payment.create({
+      data: {
+        orderId: newOrder.id,
+        userId,
+        amount: total + (useKartCoins ? 0 : 30), // 30 is delivery charge, handled by coins
+        paymentStatus: 'pending',
+        method: paymentMethod
+      }
+    });
+
+    return newOrder;
+  });
+
+  return order;
+};
 
 export const placeOrder = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -13,98 +129,35 @@ export const placeOrder = async (req: AuthRequest, res: Response, next: NextFunc
       return next(new AppError('Delivery address is required', 400));
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-    if (!user) throw new AppError('User not found', 404);
-
-    const KART_COIN_THRESHOLD = 30;
-    if (useKartCoins && user.kartCoins < KART_COIN_THRESHOLD) {
-      return next(new AppError('Not enough Kart Coins for free delivery', 400));
+    // Queue check - inform user if queue is backing up
+    const queueStatus = checkoutQueue.getQueueStatus();
+    if (queueStatus.queueLength > 0) {
+      res.setHeader('X-Queue-Position', queueStatus.queueLength + 1);
+      res.setHeader('X-Estimated-Wait-Ms', queueStatus.estimatedWaitTime);
     }
 
-    const validatedVendorId = await orderService.validateSingleVendorCart(items);
-    if (validatedVendorId !== vendorId) throw new AppError('Vendor mismatch', 400);
-
-    const productIds = items.map((i: any) => i.productId);
-    const products: any[] = await prisma.product.findMany({ where: { id: { in: productIds } } });
-
-    // Pre-Order stock validation
-    for (const item of items) {
-      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
-        throw new AppError(`Invalid quantity for product ${item.productId}`, 400);
-      }
-      const product = (products as any[]).find((p: any) => p.id === item.productId);
-      if (!product) throw new AppError(`Product not found: ${item.productId}`, 404);
-      if (Number(product.stockQuantity) < Number(item.quantity)) {
-        throw new AppError(`Insufficient stock available for ${product.name}`, 400);
-      }
-    }
-
-    let total = 0;
-    const orderItemsData = items.map((item: any) => {
-      const product = products.find(p => p.id === item.productId)!;
-      total += product.price * item.quantity;
-      return {
-        productId: item.productId,
-        quantity: item.quantity,
-        price: product.price
-      };
+    // Add to queue
+    const order = await checkoutQueue.enqueue({
+      id: `${req.user.id}-${Date.now()}`,
+      userId: req.user.id,
+      vendorId,
+      items,
+      deliveryAddress,
+      paymentMethod,
+      useKartCoins,
+      handler: () =>
+        processCheckout(req.user.id, vendorId, items, deliveryAddress, paymentMethod, useKartCoins)
     });
 
-    const kartCoinsEarned = orderService.calculateKartCoins(total);
-    const kartCoinsUsed = useKartCoins ? KART_COIN_THRESHOLD : 0;
-
-    const order = await prisma.$transaction(async (tx: any) => {
-      // Atomic Stock Decrement
-      for (const item of items) {
-        const product = await tx.product.findUnique({
-          where: { id: item.productId },
-          select: { stockQuantity: true, name: true }
-        });
-        
-        if (!product || product.stockQuantity < item.quantity) {
-          throw new AppError(`Stock sold out during checkout for ${product?.name || 'product'}`, 400);
-        }
-
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stockQuantity: { decrement: item.quantity },
-            inStock: product.stockQuantity - item.quantity > 0
-          }
-        });
-      }
-
-      const newOrder = await tx.order.create({
-        data: {
-          userId: req.user.id,
-          vendorId,
-          total,
-          deliveryAddress: deliveryAddress.trim(),
-          paymentMethod,
-          kartCoinsEarned,
-          kartCoinsUsed,
-          items: {
-            create: orderItemsData
-          }
-        },
-        include: { items: true }
-      });
-
-      await tx.payment.create({
-        data: {
-          orderId: newOrder.id,
-          userId: req.user.id,
-          amount: total + (useKartCoins ? 0 : 30), // 30 is delivery charge, handled by coins
-          paymentStatus: 'pending',
-          method: paymentMethod
-        }
-      });
-
-      return newOrder;
+    res.status(201).json({
+      success: true,
+      message: 'Order placed successfully',
+      data: order,
+      queueInfo: queueStatus
     });
-
-    res.status(201).json({ success: true, message: 'Order placed successfully', data: order });
-  } catch (error) { next(error); }
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const getOrderById = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -115,9 +168,17 @@ export const getOrderById = async (req: AuthRequest, res: Response, next: NextFu
     });
     if (!order) return next(new AppError('Order not found', 404));
 
-    // Check authorization: users can only see their own orders, admins/vendors can see all
+    // Check authorization
     if (req.user.role === 'user' && order.userId !== req.user.id) {
       return next(new AppError('Unauthorized: Cannot view other user orders', 403));
+    }
+    
+    // Vendors can only see orders for their own shop (Issue #88)
+    if (req.user.role === 'vendor') {
+      const vendorProfile = await prisma.vendorProfile.findUnique({ where: { userId: req.user.id } });
+      if (order.vendorId !== vendorProfile?.vendorId) {
+        return next(new AppError('Unauthorized: Cannot view other vendor orders', 403));
+      }
     }
 
     res.status(200).json({ success: true, data: order });
@@ -138,6 +199,14 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response, next: N
       where: { id: req.params.id }
     });
     if (!existingOrder) return next(new AppError('Order not found', 404));
+
+    // Verify vendor ownership (Issue #88)
+    if (req.user.role === 'vendor') {
+      const vendorProfile = await prisma.vendorProfile.findUnique({ where: { userId: req.user.id } });
+      if (existingOrder.vendorId !== vendorProfile?.vendorId) {
+        return next(new AppError('Unauthorized: Cannot modify other vendor orders', 403));
+      }
+    }
 
     // Idempotency check: don't process if status is already the same
     if (existingOrder.status === status) {
@@ -191,6 +260,14 @@ export const assignCourier = async (req: AuthRequest, res: Response, next: NextF
     const order = await prisma.order.findUnique({ where: { id: req.params.id } });
     if (!order) return next(new AppError('Order not found', 404));
 
+    // Verify vendor ownership (Issue #88)
+    if (req.user.role === 'vendor') {
+      const vendorProfile = await prisma.vendorProfile.findUnique({ where: { userId: req.user.id } });
+      if (order.vendorId !== vendorProfile?.vendorId) {
+        return next(new AppError('Unauthorized: Cannot assign couriers to other vendor orders', 403));
+      }
+    }
+
     // Check if courier exists
     const courier = await prisma.courierProfile.findUnique({ where: { userId: courierId } });
     if (!courier) return next(new AppError('Courier not found', 404));
@@ -207,6 +284,12 @@ export const rateOrder = async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const existingOrder = await prisma.order.findUnique({ where: { id: req.params.id } });
     if (!existingOrder) return next(new AppError('Order not found', 404));
+    
+    // Verify order ownership (Issue #92)
+    if (existingOrder.userId !== req.user.id) {
+      return next(new AppError('Unauthorized: You can only rate your own orders', 403));
+    }
+    
     if (existingOrder.status !== 'delivered') {
       return next(new AppError('Cannot rate an undelivered order', 400));
     }
@@ -279,6 +362,12 @@ export const submitComplaint = async (req: AuthRequest, res: Response, next: Nex
   try {
     const existingOrder = await prisma.order.findUnique({ where: { id: req.params.id } });
     if (!existingOrder) return next(new AppError('Order not found', 404));
+    
+    // Verify order ownership (Issue #92)
+    if (existingOrder.userId !== req.user.id) {
+      return next(new AppError('Unauthorized: You can only file complaints on your own orders', 403));
+    }
+    
     if (existingOrder.status !== 'delivered') {
       return next(new AppError('Cannot submit a complaint for an undelivered order', 400));
     }
@@ -304,6 +393,27 @@ export const submitComplaint = async (req: AuthRequest, res: Response, next: Nex
     });
     res.status(201).json({ success: true, data: complaint });
   } catch (error) { next(error); }
+};
+
+/**
+ * Get checkout queue status
+ * Useful for monitoring and showing users their position in queue
+ */
+export const getQueueStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const status = checkoutQueue.getQueueStatus();
+    res.status(200).json({
+      success: true,
+      data: {
+        ...status,
+        message: status.queueLength > 0
+          ? `${status.queueLength} orders ahead of you. Estimated wait: ${Math.ceil(status.estimatedWaitTime / 1000)}s`
+          : 'No queue, you can checkout immediately'
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const getActiveOrders = async (req: AuthRequest, res: Response, next: NextFunction) => {

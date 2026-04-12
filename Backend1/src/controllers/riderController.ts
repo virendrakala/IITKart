@@ -66,10 +66,11 @@ export const getPendingDeliveries = async (req: AuthRequest, res: Response, next
 
 export const acceptDelivery = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    // Atomic update preventing race conditions
+    // Assign courier but DO NOT change status to 'picked' yet
+    // Status remains 'accepted' indicating rider is assigned but hasn't confirmed pickup
     const updateResult = await prisma.order.updateMany({
       where: { id: req.params.orderId, status: { in: ['pending', 'accepted'] }, courierId: null },
-      data: { courierId: req.user.id, status: 'picked' }
+      data: { courierId: req.user.id }
     });
 
     if (updateResult.count === 0) {
@@ -77,7 +78,35 @@ export const acceptDelivery = async (req: AuthRequest, res: Response, next: Next
     }
 
     const order = await prisma.order.findUnique({ where: { id: req.params.orderId } });
-    res.status(200).json({ success: true, data: order, message: 'Delivery accepted' });
+    res.status(200).json({ success: true, data: order, message: 'Delivery accepted. Head to vendor location' });
+  } catch (error) { next(error); }
+};
+
+export const confirmPickup = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    // Update status from 'accepted' to 'picked' only if rider is the assigned courier
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.orderId }
+    });
+
+    if (!order) {
+      return next(new AppError('Order not found', 404));
+    }
+
+    if (order.courierId !== req.user.id) {
+      return next(new AppError('Unauthorized: You are not assigned to this delivery', 403));
+    }
+
+    if (order.status !== 'accepted') {
+      return next(new AppError('Invalid order state. Order must be in "accepted" state to confirm pickup', 400));
+    }
+
+    const updated = await prisma.order.update({
+      where: { id: req.params.orderId },
+      data: { status: 'picked' }
+    });
+
+    res.status(200).json({ success: true, data: updated, message: 'Pickup confirmed. Package is with you. Head to delivery location' });
   } catch (error) { next(error); }
 };
 
@@ -140,8 +169,13 @@ export const markDelivered = async (req: AuthRequest, res: Response, next: NextF
 
 export const getActiveDeliveries = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // Show all deliveries assigned to this courier that are not yet delivered
+    // This includes both 'accepted' (confirmed pickup) and 'picked' (out for delivery) statuses
     const orders = await prisma.order.findMany({
-      where: { courierId: req.user.id, status: 'picked' },
+      where: { 
+        courierId: req.user.id, 
+        status: { in: ['accepted', 'picked'] }
+      },
       include: { vendor: { select: { name: true, location: true } }, user: { select: { name: true, phone: true } } },
       orderBy: { updatedAt: 'desc' }
     });

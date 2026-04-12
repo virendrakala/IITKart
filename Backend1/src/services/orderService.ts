@@ -72,6 +72,16 @@ export const orderService = {
               }
             });
           }
+
+          // Issue #90: Credit Kart Coins earned to user
+          if (order.kartCoinsEarned > 0) {
+            await tx.user.update({
+              where: { id: order.userId },
+              data: {
+                kartCoins: { increment: order.kartCoinsEarned }
+              }
+            });
+          }
         });
       }
     } catch (error) {

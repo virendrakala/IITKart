@@ -13,6 +13,7 @@ router.patch('/profile', riderController.updateProfile);
 router.get('/deliveries/pending', riderController.getPendingDeliveries);
 router.post('/deliveries/:orderId/accept', riderController.acceptDelivery);
 router.post('/deliveries/:orderId/reject', riderController.rejectDelivery);
+router.patch('/deliveries/:orderId/pickup', riderController.confirmPickup);
 router.patch('/deliveries/:orderId/delivered', riderController.markDelivered);
 router.get('/deliveries/active', riderController.getActiveDeliveries);
 router.get('/deliveries/history', riderController.getDeliveryHistory);

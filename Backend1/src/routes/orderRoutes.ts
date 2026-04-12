@@ -7,6 +7,7 @@ const router = Router();
 router.use(verifyToken);
 
 router.post('/', requireRole('user'), orderController.placeOrder);
+router.get('/queue/status', orderController.getQueueStatus);
 router.get('/active', requireRole('admin', 'vendor', 'courier'), orderController.getActiveOrders);
 
 router.get('/:id', orderController.getOrderById);

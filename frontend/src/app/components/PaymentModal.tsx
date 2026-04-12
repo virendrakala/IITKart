@@ -249,7 +249,10 @@ export function PaymentModal({ open, onOpenChange, order, onPaymentSuccess }: Pa
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-[#0F1E3A] border border-blue-100 dark:border-blue-900/30 rounded-2xl p-0">
+      <DialogContent 
+        className="max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-[#0F1E3A] border border-blue-100 dark:border-blue-900/30 rounded-2xl p-0"
+        hideOverlay={paymentStep === 'processing'}
+      >
         <div className="p-6">
           <DialogHeader className="mb-6">
             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${

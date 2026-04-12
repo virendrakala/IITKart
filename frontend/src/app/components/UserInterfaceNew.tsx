@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import api from '@/api/axios';
 import { useApp } from '@/app/contexts/AppContext';
 import { Header } from '@/app/components/Header';
@@ -14,11 +14,11 @@ import {
   ShoppingCart, Search, MapPin, Plus, Minus, Trash2, Star, Heart,
   Settings, User, Wallet, Package, Camera, Mail, Phone, Home as HomeIcon,
   Bike, Store, CheckCircle, Clock, Truck, Box, AlertTriangle, Download,
-  Printer, Coins, X, Receipt
+  Printer, Coins, X, Receipt, Loader
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PaymentModal } from '@/app/components/PaymentModal';
-import { isValidPhone } from '@/app/utils/validation';
+import { isValidPhone, isValidEmail, isValidName, isValidTextInput } from '@/app/utils/validation';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -51,20 +51,45 @@ export function UserInterface() {
     updateUser, addComplaint, rateOrder, complaints, authLoading, logout, toggleFavorite: contextToggleFavorite
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState('browse');
+  const { tab } = useParams<{ tab?: string }>();
+  // Issue #78: Sync activeTab with URL parameter
+  const [activeTab, setActiveTab]     = useState(tab || 'browse');
+  
+  React.useEffect(() => {
+    if (tab) {
+      setActiveTab(tab);
+    }
+  }, [tab]);
+  
+  const handleTabChange = (newTab: string) => {
+    setActiveTab(newTab);
+    navigate(`/user/${newTab}`);
+  };
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [shopFilter, setShopFilter] = useState<'all' | 'bestsellers' | 'favorites'>('all');
   const [showCart, setShowCart] = useState(false);
   const [useKartCoins, setUseKartCoins] = useState(false);
-  const [location, setLocation] = useState(currentUser?.address || '');
+  // Issue #81: Initialize location from localStorage first, then use currentUser address as fallback
+  const [location, setLocation]       = useState(() => {
+    const savedLocation = typeof window !== 'undefined' ? localStorage.getItem('deliveryLocation') : null;
+    return savedLocation || currentUser?.address || '';
+  });
   const [selectedVendor, setSelectedVendor] = useState('all');
   const [favorites, setFavorites] = useState<string[]>(currentUser?.favorites || []);
 
-  const [settingsData, setSettingsData] = useState({
+  const [settingsData, setSettingsData = useState({
     name: currentUser?.name || '', email: currentUser?.email || '',
     phone: currentUser?.phone || '', address: currentUser?.address || '', photo: currentUser?.photo || ''
   });
+
+  // Issue #81: Save delivery location to localStorage whenever it changes
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('deliveryLocation', location);
+    }
+  }, [location]);
 
   // Sync settings data when currentUser changes (e.g., on page reload)
   React.useEffect(() => {
@@ -76,8 +101,8 @@ export function UserInterface() {
         address: currentUser.address || '',
         photo: currentUser.photo || ''
       });
-      // Also sync delivery location when user data loads
-      setLocation(currentUser.address || '');
+      // Also sync delivery location when user data loads (from database)
+      setLocation(currentUser.address || (typeof window !== 'undefined' ? localStorage.getItem('deliveryLocation') || '' : ''));
     }
   }, [currentUser?.id]); // Only depend on ID to avoid constant updates
 
@@ -90,6 +115,7 @@ export function UserInterface() {
   const [feedbackDialog, setFeedbackDialog] = useState<{ open: boolean; orderId: string; type: 'product' | 'courier' | 'vendor' }>({ open: false, orderId: '', type: 'product' });
   const [rating, setRating] = useState(5);
   const [feedback, setFeedback] = useState('');
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
 
   const [complaintDialog, setComplaintDialog] = useState<{ open: boolean; orderId: string }>({ open: false, orderId: '' });
   const [complaintSubject, setComplaintSubject] = useState('');
@@ -207,14 +233,23 @@ export function UserInterface() {
       setPendingOrder(null);
       toast.success(`Order placed! You earned ${pendingOrder.kartCoinsEarned} Kart Coins`);
     }
-    setActiveTab('orders');
+    handleTabChange('orders');
   };
 
-  const handleFeedbackSubmit = () => {
-    rateOrder(feedbackDialog.orderId, feedbackDialog.type, rating, feedback);
-    toast.success('Feedback submitted successfully');
-    setFeedbackDialog({ open: false, orderId: '', type: 'product' });
-    setRating(5); setFeedback('');
+  const handleFeedbackSubmit = async () => {
+    try {
+      setIsSubmittingRating(true);
+      await rateOrder(feedbackDialog.orderId, feedbackDialog.type, rating, feedback);
+      toast.success('Feedback submitted successfully');
+      setFeedbackDialog({ open: false, orderId: '', type: 'product' });
+      setRating(5);
+      setFeedback('');
+    } catch (error) {
+      toast.error('Failed to submit feedback. Please try again.');
+      console.error('Feedback submission error:', error);
+    } finally {
+      setIsSubmittingRating(false);
+    }
   };
 
   const handleComplaintSubmit = () => {
@@ -269,7 +304,7 @@ export function UserInterface() {
         <Sidebar
           items={navItems}
           activeId={activeTab}
-          onSelect={setActiveTab}
+          onSelect={handleTabChange}
           accentColor="#1E3A8A"
           header={
             <div className="flex items-center gap-3">
@@ -360,7 +395,7 @@ export function UserInterface() {
                           <div>
                             <h3 className="font-bold text-[#0F172A] dark:text-white text-sm" style={{ fontFamily: 'Syne, sans-serif' }}>{vendor?.name}</h3>
                             <div className="flex items-center gap-3 text-xs text-slate-400">
-                              <span className="flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" />{vendor?.rating}</span>
+                              <span className="flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" />{typeof vendor?.rating === 'number' ? vendor.rating.toFixed(1) : vendor?.rating}</span>
                               <span>{vendor?.availability}</span>
                             </div>
                           </div>
@@ -419,7 +454,7 @@ export function UserInterface() {
                     <Package className="w-12 h-12 text-blue-200 dark:text-blue-800 mb-4" />
                     <h3 className="font-bold text-slate-700 dark:text-slate-300 mb-1" style={{ fontFamily: 'Syne, sans-serif' }}>No orders yet</h3>
                     <p className="text-slate-400 text-sm mb-4">Start browsing and place your first order!</p>
-                    <button onClick={() => setActiveTab('browse')} className="bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white text-sm font-bold px-6 py-2.5 rounded-xl transition-all active:scale-95">Browse Products</button>
+                    <button onClick={() => handleTabChange('browse')} className="bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white text-sm font-bold px-6 py-2.5 rounded-xl transition-all active:scale-95">Browse Products</button>
                   </div>
                 ) : userOrders.map(order => {
                   const vendor = vendors.find(v => v.id === order.vendorId);
@@ -664,9 +699,19 @@ export function UserInterface() {
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) {
+                            // Issue #79: Validate file size (max 5MB)
+                            const maxSizeInBytes = 5 * 1024 * 1024; // 5MB
+                            if (file.size > maxSizeInBytes) {
+                              toast.error(`File too large! Maximum size is 5MB, but your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB`);
+                              return;
+                            }
                             const reader = new FileReader();
                             reader.onloadend = () => {
                               setSettingsData({ ...settingsData, photo: reader.result as string, photoFile: file } as any);
+                              toast.success('Photo selected! Click Save to upload.');
+                            };
+                            reader.onerror = () => {
+                              toast.error('Failed to read file. Please try again.');
                             };
                             reader.readAsDataURL(file);
                           }
@@ -713,24 +758,51 @@ export function UserInterface() {
                     );
                   })}
                   <div className="flex gap-3 pt-2">
-                    <button onClick={async () => {
-                      if (!isValidPhone(settingsData.phone)) {
-                        toast.error('Please enter a valid 10-digit phone number');
-                        return;
-                      }
-                      try {
-                        let photoRef = settingsData.photo;
-                        // Handle FormData if file was selected
-                        if ((settingsData as any).photoFile) {
-                          const formData = new FormData();
-                          formData.append('photo', (settingsData as any).photoFile);
-                          formData.append('name', settingsData.name);
-                          formData.append('email', settingsData.email);
-                          formData.append('phone', settingsData.phone);
-                          formData.append('address', settingsData.address);
-                          // Use the proper api instance for multipart form data
-                          const res = await api.patch('/users/profile', formData, {
-                            headers: { 'Content-Type': 'multipart/form-data' }
+                      <button onClick={async () => {
+                        // Issue #89: Validate all settings before saving
+                        if (!isValidName(settingsData.name)) {
+                          toast.error('Please enter a valid name (must contain at least one letter or number)');
+                          return;
+                        }
+                        if (!isValidEmail(settingsData.email)) {
+                          toast.error('Please enter a valid email address');
+                          return;
+                        }
+                        if (!isValidPhone(settingsData.phone)) {
+                          toast.error('Please enter a valid 10-digit phone number');
+                          return;
+                        }
+                        if (!isValidTextInput(settingsData.address)) {
+                          toast.error('Please enter a valid address (must contain at least one letter or number)');
+                          return;
+                        }
+                        try {
+                          let photoRef = settingsData.photo;
+                          // Handle FormData if file was selected
+                          if ((settingsData as any).photoFile) {
+                            const formData = new FormData();
+                            formData.append('photo', (settingsData as any).photoFile);
+                            formData.append('name', settingsData.name);
+                            formData.append('email', settingsData.email);
+                            formData.append('phone', settingsData.phone);
+                            formData.append('address', settingsData.address);
+                            // Use the proper api instance for multipart form data
+                            const res = await api.patch('/users/profile', formData, {
+                               headers: { 'Content-Type': 'multipart/form-data' }
+                            });
+                            if (res?.data?.data) {
+                              photoRef = res.data.data.photo;
+                              toast.success('Settings & Photo saved!');
+                            }
+                          }
+
+                          // Update all user data
+                          updateUser(currentUser.id, {
+                            name: settingsData.name,
+                            email: settingsData.email,
+                            phone: settingsData.phone,
+                            address: settingsData.address,
+                            photo: photoRef
                           });
                           if (res?.data?.data) {
                             photoRef = res.data.data.photo;
@@ -871,7 +943,16 @@ export function UserInterface() {
             </div>
             <Textarea value={feedback} onChange={e => setFeedback(e.target.value)} placeholder="Share detailed feedback (optional)…"
               className="bg-[#F0F4FF] dark:bg-[#0A1628] border-blue-100 dark:border-blue-900/30 rounded-xl" rows={3} />
-            <button onClick={handleFeedbackSubmit} className="w-full h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] text-white font-bold rounded-xl transition-all active:scale-95">Submit Feedback</button>
+            <button onClick={handleFeedbackSubmit} disabled={isSubmittingRating} className="w-full h-11 bg-[#1E3A8A] hover:bg-[#2B4FBA] disabled:bg-slate-400 text-white font-bold rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2">
+              {isSubmittingRating ? (
+                <>
+                  <Loader className="w-4 h-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                'Submit Feedback'
+              )}
+            </button>
           </div>
         </DialogContent>
       </Dialog>

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, Store, Truck, Shield, ArrowRight, Star, Zap, Clock, Package } from 'lucide-react';
+import { useApp } from '@/app/contexts/AppContext';
 
 function useCountUp(target: number, duration = 1500, start = false) {
   const [count, setCount] = useState(0);
@@ -69,8 +70,39 @@ const shops = [
 
 export function HomePage() {
   const navigate = useNavigate();
+  const { currentUser, authLoading } = useApp();
   const statsRef = useRef<HTMLDivElement>(null);
   const [statsVisible, setStatsVisible] = useState(false);
+  
+  // Issue #85: Redirect authenticated users to their dashboard
+  useEffect(() => {
+    if (authLoading) return;
+    if (currentUser) {
+      const role = currentUser.role?.toLowerCase() || 'user';
+      if (role === 'admin') {
+        navigate('/admin');
+      } else if (role === 'vendor') {
+        navigate('/vendor');
+      } else if (role === 'courier' || role === 'rider') {
+        navigate('/courier');
+      } else {
+        navigate('/user');
+      }
+    }
+  }, [currentUser, authLoading, navigate]);
+  
+  // Show loading state while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F0F4FF] dark:bg-[#0A1628]">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-full border-4 border-blue-200 border-t-blue-500 animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-600 dark:text-slate-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) setStatsVisible(true); },
