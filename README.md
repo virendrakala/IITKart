@@ -34,7 +34,7 @@ cd IITKart
 Navigate to the backend directory:
 
 ```bash
-cd Backend1
+cd Backend
 npm install
 ```
 
